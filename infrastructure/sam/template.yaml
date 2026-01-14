@@ -1,0 +1,69 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  GiftBridge SAM template for local development and testing.
+
+Globals:
+  Function:
+    Timeout: 300
+    MemorySize: 128
+
+Parameters:
+  BlackbaudClientId:
+    Type: String
+    Default: "test-client-id"
+
+  BlackbaudClientSecret:
+    Type: String
+    Default: "test-client-secret"
+
+  BlackbaudEnvironmentId:
+    Type: String
+    Default: "test-env-id"
+
+  BlackbaudRefreshTokenSecretArn:
+    Type: String
+    Default: "arn:aws:secretsmanager:us-east-1:123456789012:secret:test"
+
+  BlackbaudSubscriptionKey:
+    Type: String
+    Default: "test-subscription-key"
+
+  DynamoDBTableName:
+    Type: String
+    Default: "giftbridge-donations"
+
+  FundraiseUpApiKey:
+    Type: String
+    Default: "test-api-key"
+
+  SSMParameterName:
+    Type: String
+    Default: "/giftbridge/last-sync-time"
+
+Resources:
+  SyncFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: giftbridge-sync
+      Description: Syncs donations from FundraiseUp to Blackbaud.
+      Handler: bootstrap
+      Runtime: provided.al2023
+      Architectures:
+        - arm64
+      CodeUri: ../../
+      Environment:
+        Variables:
+          BLACKBAUD_CLIENT_ID: !Ref BlackbaudClientId
+          BLACKBAUD_CLIENT_SECRET: !Ref BlackbaudClientSecret
+          BLACKBAUD_ENVIRONMENT_ID: !Ref BlackbaudEnvironmentId
+          BLACKBAUD_REFRESH_TOKEN_SECRET_ARN: !Ref BlackbaudRefreshTokenSecretArn
+          BLACKBAUD_SUBSCRIPTION_KEY: !Ref BlackbaudSubscriptionKey
+          DYNAMODB_TABLE_NAME: !Ref DynamoDBTableName
+          FUNDRAISEUP_API_KEY: !Ref FundraiseUpApiKey
+          SSM_PARAMETER_NAME: !Ref SSMParameterName
+
+Outputs:
+  SyncFunction:
+    Description: Sync Lambda Function ARN
+    Value: !GetAtt SyncFunction.Arn
