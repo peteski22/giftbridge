@@ -2,7 +2,10 @@ module github.com/peteski22/giftbridge
 
 go 1.25.5
 
-require github.com/aws/aws-lambda-go v1.51.2
+require (
+	github.com/aws/aws-lambda-go v1.51.2
+	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.1
+)
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.1

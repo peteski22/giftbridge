@@ -12,6 +12,8 @@ github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.4 h1:0ryTNEd
 github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.4/go.mod h1:HQ4qwNZh32C3CBeO6iJLQlgtMzqeG17ziAA/3KDJFow=
 github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.11.17 h1:Nhx/OYX+ukejm9t/MkWI8sucnsiroNYNGb5ddI9ungQ=
 github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.11.17/go.mod h1:AjmK8JWnlAevq1b1NBtv5oQVG4iqnYXUufdgol+q9wg=
+github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.1 h1:72DBkm/CCuWx2LMHAXvLDkZfzopT3psfAeyZDIt1/yE=
+github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.41.1/go.mod h1:A+oSJxFvzgjZWkpM0mXs3RxB5O1SD6473w3qafOC9eU=
 github.com/aws/aws-sdk-go-v2/service/ssm v1.67.8 h1:31Llf5VfrZ78YvYs7sWcS7L2m3waikzRc6q1nYenVS4=
 github.com/aws/aws-sdk-go-v2/service/ssm v1.67.8/go.mod h1:/jgaDlU1UImoxTxhRNxXHvBAPqPZQ8oCjcPbbkR6kac=
 github.com/aws/smithy-go v1.24.0 h1:LpilSUItNPFr1eY85RYgTIg5eIEPtvFbskaFcmmIUnk=

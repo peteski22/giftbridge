@@ -24,6 +24,9 @@ const (
 	// EnvBlackbaudSubscriptionKey is the SKY API subscription key.
 	EnvBlackbaudSubscriptionKey = "BLACKBAUD_SUBSCRIPTION_KEY"
 
+	// EnvBlackbaudRefreshTokenSecretARN is the Secrets Manager ARN for the refresh token.
+	EnvBlackbaudRefreshTokenSecretARN = "BLACKBAUD_REFRESH_TOKEN_SECRET_ARN"
+
 	// EnvBlackbaudTokenURL is the OAuth token endpoint URL.
 	EnvBlackbaudTokenURL = "BLACKBAUD_TOKEN_URL"
 
@@ -53,6 +56,9 @@ type Blackbaud struct {
 
 	// EnvironmentID is the Blackbaud environment identifier.
 	EnvironmentID string
+
+	// RefreshTokenSecretARN is the Secrets Manager ARN storing the OAuth refresh token.
+	RefreshTokenSecretARN string
 
 	// SubscriptionKey is the SKY API subscription key.
 	SubscriptionKey string
@@ -109,6 +115,9 @@ func (s *Settings) validate() error {
 	if s.Blackbaud.EnvironmentID == "" {
 		errs = append(errs, requiredError(EnvBlackbaudEnvironmentID))
 	}
+	if s.Blackbaud.RefreshTokenSecretARN == "" {
+		errs = append(errs, requiredError(EnvBlackbaudRefreshTokenSecretARN))
+	}
 	if s.Blackbaud.SubscriptionKey == "" {
 		errs = append(errs, requiredError(EnvBlackbaudSubscriptionKey))
 	}
@@ -129,12 +138,13 @@ func (s *Settings) validate() error {
 func Load() (*Settings, error) {
 	cfg := &Settings{
 		Blackbaud: Blackbaud{
-			APIBaseURL:      envOrDefault(EnvBlackbaudAPIBaseURL, "https://api.sky.blackbaud.com"),
-			ClientID:        strings.TrimSpace(os.Getenv(EnvBlackbaudClientID)),
-			ClientSecret:    strings.TrimSpace(os.Getenv(EnvBlackbaudClientSecret)),
-			EnvironmentID:   strings.TrimSpace(os.Getenv(EnvBlackbaudEnvironmentID)),
-			SubscriptionKey: strings.TrimSpace(os.Getenv(EnvBlackbaudSubscriptionKey)),
-			TokenURL:        envOrDefault(EnvBlackbaudTokenURL, "https://oauth2.sky.blackbaud.com/token"),
+			APIBaseURL:            envOrDefault(EnvBlackbaudAPIBaseURL, "https://api.sky.blackbaud.com"),
+			ClientID:              strings.TrimSpace(os.Getenv(EnvBlackbaudClientID)),
+			ClientSecret:          strings.TrimSpace(os.Getenv(EnvBlackbaudClientSecret)),
+			EnvironmentID:         strings.TrimSpace(os.Getenv(EnvBlackbaudEnvironmentID)),
+			RefreshTokenSecretARN: strings.TrimSpace(os.Getenv(EnvBlackbaudRefreshTokenSecretARN)),
+			SubscriptionKey:       strings.TrimSpace(os.Getenv(EnvBlackbaudSubscriptionKey)),
+			TokenURL:              envOrDefault(EnvBlackbaudTokenURL, "https://oauth2.sky.blackbaud.com/token"),
 		},
 		DynamoDB: DynamoDB{
 			TableName: strings.TrimSpace(os.Getenv(EnvDynamoDBTableName)),
