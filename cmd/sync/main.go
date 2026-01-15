@@ -93,6 +93,7 @@ func handler(ctx context.Context) error {
 		DonationTracker: donationTracker,
 		FundraiseUp:     fundraiseupClient,
 		Logger:          slog.Default(),
+		GiftDefaults:    cfg.GiftDefaults,
 		StateStore:      stateStore,
 	})
 	if err != nil {

@@ -7,15 +7,10 @@ import (
 )
 
 // Compile-time interface satisfaction checks.
-// Note: Donation.ToDomainType takes a constituentID parameter, so it doesn't satisfy Convertible.
 var (
-	// Verify Address implements Convertible.
-	_ Convertible[*blackbaud.Address] = (*Address)(nil)
-
-	// Verify PaymentMethod implements Convertible.
-	_ Convertible[string] = PaymentMethod("")
-
-	// Verify Supporter implements Convertible.
+	_ Convertible[*blackbaud.Address]     = (*Address)(nil)
+	_ Convertible[*blackbaud.Gift]        = (*Donation)(nil)
+	_ Convertible[string]                 = PaymentMethod("")
 	_ Convertible[*blackbaud.Constituent] = (*Supporter)(nil)
 )
 
@@ -47,16 +42,20 @@ func (a *Address) ToDomainType() *blackbaud.Address {
 }
 
 // ToDomainType converts a Donation to its Blackbaud domain representation.
-func (d Donation) ToDomainType(constituentID string) *blackbaud.Gift {
+// Returns a gift with donation-specific fields only. The caller is responsible
+// for setting ConstituentID, Type, and GiftSplits based on configuration.
+func (d *Donation) ToDomainType() *blackbaud.Gift {
+	if d == nil {
+		return nil
+	}
+
 	// FundraiseUp amount is in cents, Blackbaud expects decimal.
 	amount := float64(d.Amount) / 100
 
 	gift := &blackbaud.Gift{
-		Amount:        &blackbaud.GiftAmount{Value: amount},
-		ConstituentID: constituentID,
-		Date:          d.CreatedAt.Format("2006-01-02"),
-		ExternalID:    d.ID,
-		Type:          "Donation",
+		Amount:     &blackbaud.GiftAmount{Value: amount},
+		Date:       d.CreatedAt.Format("2006-01-02"),
+		ExternalID: d.ID,
 	}
 
 	if d.PaymentMethod != "" {

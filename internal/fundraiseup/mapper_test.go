@@ -76,59 +76,53 @@ func TestDonation_ToDomainType(t *testing.T) {
 	createdAt := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
 
 	tests := map[string]struct {
-		constituentID string
-		donation      Donation
-		want          *blackbaud.Gift
+		donation *Donation
+		want     *blackbaud.Gift
 	}{
+		"nil donation": {
+			donation: nil,
+			want:     nil,
+		},
 		"basic donation": {
-			donation: Donation{
+			donation: &Donation{
 				Amount:        5000,
 				CreatedAt:     createdAt,
 				ID:            "don_123",
 				PaymentMethod: PaymentMethodCard,
 			},
-			constituentID: "const_456",
 			want: &blackbaud.Gift{
 				Amount:        &blackbaud.GiftAmount{Value: 50.00},
-				ConstituentID: "const_456",
 				Date:          "2024-01-15",
 				ExternalID:    "don_123",
 				PaymentMethod: "Credit card",
-				Type:          "Donation",
 			},
 		},
 		"donation with comment": {
-			donation: Donation{
+			donation: &Donation{
 				Amount:        10000,
 				Comment:       "In memory of John",
 				CreatedAt:     createdAt,
 				ID:            "don_789",
 				PaymentMethod: PaymentMethodPayPal,
 			},
-			constituentID: "const_abc",
 			want: &blackbaud.Gift{
 				Amount:        &blackbaud.GiftAmount{Value: 100.00},
-				ConstituentID: "const_abc",
 				Date:          "2024-01-15",
 				ExternalID:    "don_789",
 				PaymentMethod: "PayPal",
 				Reference:     "In memory of John",
-				Type:          "Donation",
 			},
 		},
 		"donation without payment method": {
-			donation: Donation{
+			donation: &Donation{
 				Amount:    2500,
 				CreatedAt: createdAt,
-				ID:        "don_empty",
+				ID:        "don_minimal",
 			},
-			constituentID: "const_xyz",
 			want: &blackbaud.Gift{
-				Amount:        &blackbaud.GiftAmount{Value: 25.00},
-				ConstituentID: "const_xyz",
-				Date:          "2024-01-15",
-				ExternalID:    "don_empty",
-				Type:          "Donation",
+				Amount:     &blackbaud.GiftAmount{Value: 25.00},
+				Date:       "2024-01-15",
+				ExternalID: "don_minimal",
 			},
 		},
 	}
@@ -137,7 +131,7 @@ func TestDonation_ToDomainType(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tc.donation.ToDomainType(tc.constituentID)
+			got := tc.donation.ToDomainType()
 
 			require.Equal(t, tc.want, got)
 		})

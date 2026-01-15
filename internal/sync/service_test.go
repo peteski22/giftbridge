@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/peteski22/giftbridge/internal/blackbaud"
+	"github.com/peteski22/giftbridge/internal/config"
 	"github.com/peteski22/giftbridge/internal/fundraiseup"
 )
 
@@ -58,10 +59,13 @@ func (m *mockDonationTracker) Track(_ context.Context, donationID string, giftID
 func TestNewService(t *testing.T) {
 	t.Parallel()
 
+	validGiftDefaults := config.GiftDefaults{FundID: "fund-123", Type: "Donation"}
+
 	validConfig := Config{
 		Blackbaud:       &blackbaud.Client{},
 		DonationTracker: &mockDonationTracker{},
 		FundraiseUp:     &fundraiseup.Client{},
+		GiftDefaults:    validGiftDefaults,
 		Logger:          slog.Default(),
 		StateStore:      &mockStateStore{},
 	}
@@ -79,6 +83,7 @@ func TestNewService(t *testing.T) {
 			config: Config{
 				DonationTracker: &mockDonationTracker{},
 				FundraiseUp:     &fundraiseup.Client{},
+				GiftDefaults:    validGiftDefaults,
 				StateStore:      &mockStateStore{},
 			},
 			wantErr: true,
@@ -86,9 +91,10 @@ func TestNewService(t *testing.T) {
 		},
 		"missing donation tracker": {
 			config: Config{
-				Blackbaud:   &blackbaud.Client{},
-				FundraiseUp: &fundraiseup.Client{},
-				StateStore:  &mockStateStore{},
+				Blackbaud:    &blackbaud.Client{},
+				FundraiseUp:  &fundraiseup.Client{},
+				GiftDefaults: validGiftDefaults,
+				StateStore:   &mockStateStore{},
 			},
 			wantErr: true,
 			errMsg:  "donation tracker is required",
@@ -97,16 +103,28 @@ func TestNewService(t *testing.T) {
 			config: Config{
 				Blackbaud:       &blackbaud.Client{},
 				DonationTracker: &mockDonationTracker{},
+				GiftDefaults:    validGiftDefaults,
 				StateStore:      &mockStateStore{},
 			},
 			wantErr: true,
 			errMsg:  "fundraiseup client is required",
+		},
+		"missing gift defaults fund id": {
+			config: Config{
+				Blackbaud:       &blackbaud.Client{},
+				DonationTracker: &mockDonationTracker{},
+				FundraiseUp:     &fundraiseup.Client{},
+				StateStore:      &mockStateStore{},
+			},
+			wantErr: true,
+			errMsg:  "gift defaults fund ID is required",
 		},
 		"missing state store": {
 			config: Config{
 				Blackbaud:       &blackbaud.Client{},
 				DonationTracker: &mockDonationTracker{},
 				FundraiseUp:     &fundraiseup.Client{},
+				GiftDefaults:    validGiftDefaults,
 			},
 			wantErr: true,
 			errMsg:  "state store is required",
@@ -116,6 +134,7 @@ func TestNewService(t *testing.T) {
 				Blackbaud:       &blackbaud.Client{},
 				DonationTracker: &mockDonationTracker{},
 				FundraiseUp:     &fundraiseup.Client{},
+				GiftDefaults:    validGiftDefaults,
 				StateStore:      &mockStateStore{},
 			},
 			wantErr: false,
@@ -153,6 +172,7 @@ func TestConfigValidate(t *testing.T) {
 				Blackbaud:       &blackbaud.Client{},
 				DonationTracker: &mockDonationTracker{},
 				FundraiseUp:     &fundraiseup.Client{},
+				GiftDefaults:    config.GiftDefaults{FundID: "fund-123"},
 				StateStore:      &mockStateStore{},
 			},
 			wantErr: false,
@@ -164,6 +184,7 @@ func TestConfigValidate(t *testing.T) {
 				"blackbaud client is required",
 				"donation tracker is required",
 				"fundraiseup client is required",
+				"gift defaults fund ID is required",
 				"state store is required",
 			},
 		},

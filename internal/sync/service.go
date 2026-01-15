@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/peteski22/giftbridge/internal/blackbaud"
+	"github.com/peteski22/giftbridge/internal/config"
 	"github.com/peteski22/giftbridge/internal/fundraiseup"
 )
 
@@ -25,6 +26,9 @@ type Config struct {
 	// Logger is the structured logger for the service.
 	Logger *slog.Logger
 
+	// GiftDefaults contains default values for gifts in Raiser's Edge.
+	GiftDefaults config.GiftDefaults
+
 	// StateStore manages sync state persistence.
 	StateStore StateStore
 }
@@ -39,6 +43,9 @@ func (c *Config) validate() error {
 	}
 	if c.FundraiseUp == nil {
 		errs = append(errs, errors.New("fundraiseup client is required"))
+	}
+	if c.GiftDefaults.FundID == "" {
+		errs = append(errs, errors.New("gift defaults fund ID is required"))
 	}
 	if c.StateStore == nil {
 		errs = append(errs, errors.New("state store is required"))
@@ -59,6 +66,9 @@ type Service struct {
 
 	// logger is the structured logger.
 	logger *slog.Logger
+
+	// giftDefaults contains default values for gifts.
+	giftDefaults config.GiftDefaults
 
 	// stateStore manages sync state persistence.
 	stateStore StateStore
@@ -182,8 +192,16 @@ func (s *Service) processDonation(ctx context.Context, donation fundraiseup.Dona
 	}
 	result.ConstituentCreated = created
 
-	// Map donation to gift.
-	gift := donation.ToDomainType(constituentID)
+	// Map donation to gift and apply configuration.
+	gift := donation.ToDomainType()
+	gift.ConstituentID = constituentID
+	gift.Type = s.giftDefaults.Type
+	gift.GiftSplits = []blackbaud.GiftSplit{{
+		Amount:     gift.Amount,
+		FundID:     s.giftDefaults.FundID,
+		CampaignID: s.giftDefaults.CampaignID,
+		AppealID:   s.giftDefaults.AppealID,
+	}}
 
 	if existingGiftID != "" {
 		// Update existing gift.
@@ -228,6 +246,7 @@ func NewService(cfg Config) (*Service, error) {
 		blackbaud:       cfg.Blackbaud,
 		donationTracker: cfg.DonationTracker,
 		fundraiseup:     cfg.FundraiseUp,
+		giftDefaults:    cfg.GiftDefaults,
 		logger:          logger,
 		stateStore:      cfg.StateStore,
 	}, nil
