@@ -23,6 +23,7 @@ func TestLoad(t *testing.T) {
 				EnvBlackbaudSubscriptionKey:       "sub-key",
 				EnvDynamoDBTableName:              "donations-table",
 				EnvFundraiseUpAPIKey:              "fru-key",
+				EnvGiftFundID:                     "fund-123",
 				EnvSSMParameterName:               "/app/last-sync",
 			},
 			wantErr: false,
@@ -43,12 +44,16 @@ func TestLoad(t *testing.T) {
 					APIKey:  "fru-key",
 					BaseURL: "https://api.fundraiseup.com/v1",
 				},
+				GiftDefaults: GiftDefaults{
+					FundID: "fund-123",
+					Type:   "Donation",
+				},
 				SSM: SSM{
 					ParameterName: "/app/last-sync",
 				},
 			},
 		},
-		"custom URLs": {
+		"custom URLs and gift defaults": {
 			envVars: map[string]string{
 				EnvBlackbaudAPIBaseURL:            "https://custom.api.com",
 				EnvBlackbaudClientID:              "client-id",
@@ -60,6 +65,10 @@ func TestLoad(t *testing.T) {
 				EnvDynamoDBTableName:              "donations-table",
 				EnvFundraiseUpAPIKey:              "fru-key",
 				EnvFundraiseUpBaseURL:             "https://custom.fru.com",
+				EnvGiftAppealID:                   "appeal-456",
+				EnvGiftCampaignID:                 "campaign-789",
+				EnvGiftFundID:                     "fund-123",
+				EnvGiftType:                       "Grant",
 				EnvSSMParameterName:               "/app/last-sync",
 			},
 			wantErr: false,
@@ -80,6 +89,12 @@ func TestLoad(t *testing.T) {
 					APIKey:  "fru-key",
 					BaseURL: "https://custom.fru.com",
 				},
+				GiftDefaults: GiftDefaults{
+					AppealID:   "appeal-456",
+					CampaignID: "campaign-789",
+					FundID:     "fund-123",
+					Type:       "Grant",
+				},
 				SSM: SSM{
 					ParameterName: "/app/last-sync",
 				},
@@ -94,6 +109,7 @@ func TestLoad(t *testing.T) {
 				EnvBlackbaudSubscriptionKey:       "sub-key",
 				EnvDynamoDBTableName:              "donations-table",
 				EnvFundraiseUpAPIKey:              "fru-key",
+				EnvGiftFundID:                     "fund-123",
 				EnvSSMParameterName:               "/app/last-sync",
 			},
 			wantErr:      true,
@@ -110,6 +126,7 @@ func TestLoad(t *testing.T) {
 				EnvBlackbaudSubscriptionKey + " is required",
 				EnvDynamoDBTableName + " is required",
 				EnvFundraiseUpAPIKey + " is required",
+				EnvGiftFundID + " is required",
 				EnvSSMParameterName + " is required",
 			},
 		},
@@ -121,6 +138,7 @@ func TestLoad(t *testing.T) {
 				EnvBlackbaudSubscriptionKey:       "sub-key",
 				EnvDynamoDBTableName:              "donations-table",
 				EnvFundraiseUpAPIKey:              "fru-key",
+				EnvGiftFundID:                     "fund-123",
 				EnvSSMParameterName:               "/app/last-sync",
 			},
 			wantErr:      true,

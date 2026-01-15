@@ -21,11 +21,11 @@ const (
 	// EnvBlackbaudEnvironmentID is the Blackbaud environment identifier.
 	EnvBlackbaudEnvironmentID = "BLACKBAUD_ENVIRONMENT_ID"
 
-	// EnvBlackbaudSubscriptionKey is the SKY API subscription key.
-	EnvBlackbaudSubscriptionKey = "BLACKBAUD_SUBSCRIPTION_KEY"
-
 	// EnvBlackbaudRefreshTokenSecretARN is the Secrets Manager ARN for the refresh token.
 	EnvBlackbaudRefreshTokenSecretARN = "BLACKBAUD_REFRESH_TOKEN_SECRET_ARN"
+
+	// EnvBlackbaudSubscriptionKey is the SKY API subscription key.
+	EnvBlackbaudSubscriptionKey = "BLACKBAUD_SUBSCRIPTION_KEY"
 
 	// EnvBlackbaudTokenURL is the OAuth token endpoint URL.
 	EnvBlackbaudTokenURL = "BLACKBAUD_TOKEN_URL"
@@ -38,6 +38,18 @@ const (
 
 	// EnvFundraiseUpBaseURL is the base URL for the FundraiseUp API.
 	EnvFundraiseUpBaseURL = "FUNDRAISEUP_BASE_URL"
+
+	// EnvGiftAppealID is the Raiser's Edge Appeal ID for gifts.
+	EnvGiftAppealID = "GIFT_APPEAL_ID"
+
+	// EnvGiftCampaignID is the Raiser's Edge Campaign ID for gifts.
+	EnvGiftCampaignID = "GIFT_CAMPAIGN_ID"
+
+	// EnvGiftFundID is the Raiser's Edge Fund ID for gifts.
+	EnvGiftFundID = "GIFT_FUND_ID"
+
+	// EnvGiftType is the gift type in Raiser's Edge (default: Donation).
+	EnvGiftType = "GIFT_TYPE"
 
 	// EnvSSMParameterName is the SSM parameter storing the last sync timestamp.
 	EnvSSMParameterName = "SSM_PARAMETER_NAME"
@@ -82,6 +94,21 @@ type FundraiseUp struct {
 	BaseURL string
 }
 
+// GiftDefaults holds default values applied to all gifts in Raiser's Edge.
+type GiftDefaults struct {
+	// AppealID is the Raiser's Edge Appeal to attribute gifts to (optional).
+	AppealID string
+
+	// CampaignID is the Raiser's Edge Campaign to attribute gifts to (optional).
+	CampaignID string
+
+	// FundID is the Raiser's Edge Fund where gifts are recorded (required).
+	FundID string
+
+	// Type is the type of gift in Raiser's Edge (default: Donation).
+	Type string
+}
+
 // SSM holds AWS Systems Manager Parameter Store configuration.
 type SSM struct {
 	// ParameterName is the SSM parameter storing the last sync timestamp.
@@ -98,6 +125,9 @@ type Settings struct {
 
 	// FundraiseUp contains FundraiseUp API settings.
 	FundraiseUp FundraiseUp
+
+	// GiftDefaults contains default values for gifts in Raiser's Edge.
+	GiftDefaults GiftDefaults
 
 	// SSM contains AWS Systems Manager Parameter Store settings.
 	SSM SSM
@@ -127,6 +157,9 @@ func (s *Settings) validate() error {
 	if s.FundraiseUp.APIKey == "" {
 		errs = append(errs, requiredError(EnvFundraiseUpAPIKey))
 	}
+	if s.GiftDefaults.FundID == "" {
+		errs = append(errs, requiredError(EnvGiftFundID))
+	}
 	if s.SSM.ParameterName == "" {
 		errs = append(errs, requiredError(EnvSSMParameterName))
 	}
@@ -152,6 +185,12 @@ func Load() (*Settings, error) {
 		FundraiseUp: FundraiseUp{
 			APIKey:  strings.TrimSpace(os.Getenv(EnvFundraiseUpAPIKey)),
 			BaseURL: envOrDefault(EnvFundraiseUpBaseURL, "https://api.fundraiseup.com/v1"),
+		},
+		GiftDefaults: GiftDefaults{
+			AppealID:   strings.TrimSpace(os.Getenv(EnvGiftAppealID)),
+			CampaignID: strings.TrimSpace(os.Getenv(EnvGiftCampaignID)),
+			FundID:     strings.TrimSpace(os.Getenv(EnvGiftFundID)),
+			Type:       envOrDefault(EnvGiftType, "Donation"),
 		},
 		SSM: SSM{
 			ParameterName: strings.TrimSpace(os.Getenv(EnvSSMParameterName)),
