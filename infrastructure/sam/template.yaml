@@ -37,6 +37,22 @@ Parameters:
     Type: String
     Default: "test-api-key"
 
+  GiftAppealId:
+    Type: String
+    Default: ""
+
+  GiftCampaignId:
+    Type: String
+    Default: ""
+
+  GiftFundId:
+    Type: String
+    Default: "test-fund-id"
+
+  GiftType:
+    Type: String
+    Default: "Donation"
+
   SSMParameterName:
     Type: String
     Default: "/giftbridge/last-sync-time"
@@ -61,6 +77,10 @@ Resources:
           BLACKBAUD_SUBSCRIPTION_KEY: !Ref BlackbaudSubscriptionKey
           DYNAMODB_TABLE_NAME: !Ref DynamoDBTableName
           FUNDRAISEUP_API_KEY: !Ref FundraiseUpApiKey
+          GIFT_APPEAL_ID: !Ref GiftAppealId
+          GIFT_CAMPAIGN_ID: !Ref GiftCampaignId
+          GIFT_FUND_ID: !Ref GiftFundId
+          GIFT_TYPE: !Ref GiftType
           SSM_PARAMETER_NAME: !Ref SSMParameterName
 
 Outputs:

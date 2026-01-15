@@ -1,7 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: >
-  GiftBridge - FundraiseUp to Blackbaud Raiser's Edge NXT sync.
-  Deploys Lambda, DynamoDB, SSM Parameter, Secrets Manager, and EventBridge schedule.
+Description: "GiftBridge - FundraiseUp to Blackbaud Raiser's Edge NXT sync. Deploys Lambda, DynamoDB, SSM Parameter, Secrets Manager, and EventBridge schedule."
 
 Parameters:
   BlackbaudClientId:
@@ -32,6 +30,25 @@ Parameters:
     Type: String
     Description: FundraiseUp API key.
     NoEcho: true
+
+  GiftAppealId:
+    Type: String
+    Description: "Raiser's Edge Appeal ID to attribute gifts to (optional)."
+    Default: ""
+
+  GiftCampaignId:
+    Type: String
+    Description: "Raiser's Edge Campaign ID to attribute gifts to (optional)."
+    Default: ""
+
+  GiftFundId:
+    Type: String
+    Description: "Raiser's Edge Fund ID where gifts are recorded (required)."
+
+  GiftType:
+    Type: String
+    Description: "Gift type in Raiser's Edge (e.g., Donation, Grant)."
+    Default: "Donation"
 
   ScheduleExpression:
     Type: String
@@ -135,7 +152,7 @@ Resources:
     DependsOn: LambdaLogGroup
     Properties:
       FunctionName: !Sub ${AWS::StackName}-sync
-      Description: Syncs donations from FundraiseUp to Blackbaud Raiser's Edge NXT.
+      Description: "Syncs donations from FundraiseUp to Blackbaud Raiser's Edge NXT."
       Runtime: provided.al2023
       Handler: bootstrap
       Architectures:
@@ -155,6 +172,10 @@ Resources:
           BLACKBAUD_SUBSCRIPTION_KEY: !Ref BlackbaudSubscriptionKey
           DYNAMODB_TABLE_NAME: !Ref DonationTrackerTable
           FUNDRAISEUP_API_KEY: !Ref FundraiseUpApiKey
+          GIFT_APPEAL_ID: !Ref GiftAppealId
+          GIFT_CAMPAIGN_ID: !Ref GiftCampaignId
+          GIFT_FUND_ID: !Ref GiftFundId
+          GIFT_TYPE: !Ref GiftType
           SSM_PARAMETER_NAME: !Sub /${AWS::StackName}/last-sync-time
       Tags:
         - Key: Application
