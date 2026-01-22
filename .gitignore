@@ -1,3 +1,5 @@
 .idea/
 .local/
+.aws-sam/
 bootstrap
+infrastructure/.env

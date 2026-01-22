@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  GiftBridge SAM template for local development and testing.
+  GiftBridge - Syncs donations from FundraiseUp to Blackbaud Raiser's Edge NXT.
 
 Globals:
   Function:
@@ -11,58 +11,102 @@ Globals:
 Parameters:
   BlackbaudClientId:
     Type: String
-    Default: "test-client-id"
+    Description: Blackbaud SKY API OAuth client ID.
+    NoEcho: true
 
   BlackbaudClientSecret:
     Type: String
-    Default: "test-client-secret"
+    Description: Blackbaud SKY API OAuth client secret.
+    NoEcho: true
 
   BlackbaudEnvironmentId:
     Type: String
-    Default: "test-env-id"
+    Description: Blackbaud environment identifier.
 
-  BlackbaudRefreshTokenSecretArn:
+  BlackbaudRefreshToken:
     Type: String
-    Default: "arn:aws:secretsmanager:us-east-1:123456789012:secret:test"
+    Description: Blackbaud OAuth refresh token (obtained via initial OAuth flow).
+    NoEcho: true
 
   BlackbaudSubscriptionKey:
     Type: String
-    Default: "test-subscription-key"
-
-  DynamoDBTableName:
-    Type: String
-    Default: "giftbridge-donations"
+    Description: Blackbaud SKY API subscription key.
+    NoEcho: true
 
   FundraiseUpApiKey:
     Type: String
-    Default: "test-api-key"
+    Description: FundraiseUp API key.
+    NoEcho: true
 
   GiftAppealId:
     Type: String
+    Description: "Raiser's Edge Appeal ID to attribute gifts to (optional)."
     Default: ""
 
   GiftCampaignId:
     Type: String
+    Description: "Raiser's Edge Campaign ID to attribute gifts to (optional)."
     Default: ""
 
   GiftFundId:
     Type: String
-    Default: "test-fund-id"
+    Description: "Raiser's Edge Fund ID where gifts are recorded (required)."
 
   GiftType:
     Type: String
+    Description: "Gift type in Raiser's Edge (e.g., Donation, Grant)."
     Default: "Donation"
 
-  SSMParameterName:
+  ScheduleExpression:
     Type: String
-    Default: "/giftbridge/last-sync-time"
+    Description: "How often to run the sync (e.g., rate(1 hour), cron(0 * * * ? *))."
+    Default: "rate(1 hour)"
 
 Resources:
+  # Secrets Manager secret for Blackbaud OAuth refresh token.
+  BlackbaudRefreshTokenSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub ${AWS::StackName}/blackbaud-refresh-token
+      Description: Blackbaud OAuth refresh token for GiftBridge.
+      SecretString: !Ref BlackbaudRefreshToken
+      Tags:
+        - Key: Application
+          Value: giftbridge
+
+  # DynamoDB table for tracking donation ID to gift ID mappings.
+  DonationTrackerTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-donations
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: donation_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: donation_id
+          KeyType: HASH
+      Tags:
+        - Key: Application
+          Value: giftbridge
+
+  # SSM Parameter for storing last sync timestamp.
+  LastSyncParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${AWS::StackName}/last-sync-time
+      Type: String
+      Value: "1970-01-01T00:00:00Z"
+      Description: Timestamp of the last successful sync.
+      Tags:
+        Application: giftbridge
+
+  # Lambda function for sync.
   SyncFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: giftbridge-sync
-      Description: Syncs donations from FundraiseUp to Blackbaud.
+      FunctionName: !Sub ${AWS::StackName}-sync
+      Description: "Syncs donations from FundraiseUp to Blackbaud Raiser's Edge NXT."
       Handler: bootstrap
       Runtime: provided.al2023
       Architectures:
@@ -73,17 +117,72 @@ Resources:
           BLACKBAUD_CLIENT_ID: !Ref BlackbaudClientId
           BLACKBAUD_CLIENT_SECRET: !Ref BlackbaudClientSecret
           BLACKBAUD_ENVIRONMENT_ID: !Ref BlackbaudEnvironmentId
-          BLACKBAUD_REFRESH_TOKEN_SECRET_ARN: !Ref BlackbaudRefreshTokenSecretArn
+          BLACKBAUD_REFRESH_TOKEN_SECRET_ARN: !Ref BlackbaudRefreshTokenSecret
           BLACKBAUD_SUBSCRIPTION_KEY: !Ref BlackbaudSubscriptionKey
-          DYNAMODB_TABLE_NAME: !Ref DynamoDBTableName
+          DYNAMODB_TABLE_NAME: !Ref DonationTrackerTable
           FUNDRAISEUP_API_KEY: !Ref FundraiseUpApiKey
           GIFT_APPEAL_ID: !Ref GiftAppealId
           GIFT_CAMPAIGN_ID: !Ref GiftCampaignId
           GIFT_FUND_ID: !Ref GiftFundId
           GIFT_TYPE: !Ref GiftType
-          SSM_PARAMETER_NAME: !Ref SSMParameterName
+          SSM_PARAMETER_NAME: !Sub /${AWS::StackName}/last-sync-time
+      Events:
+        ScheduleEvent:
+          Type: Schedule
+          Properties:
+            Schedule: !Ref ScheduleExpression
+            Description: Triggers GiftBridge sync on schedule.
+            Enabled: true
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DonationTrackerTable
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub ${AWS::StackName}/last-sync-time
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ssm:PutParameter
+              Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/last-sync-time
+        - Statement:
+            - Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+                - secretsmanager:PutSecretValue
+              Resource: !Ref BlackbaudRefreshTokenSecret
+      Tags:
+        Application: giftbridge
+
+  # CloudWatch Log Group for Lambda.
+  SyncFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-sync
+      RetentionInDays: 30
+      Tags:
+        - Key: Application
+          Value: giftbridge
 
 Outputs:
-  SyncFunction:
-    Description: Sync Lambda Function ARN
+  FunctionName:
+    Description: Name of the sync Lambda function.
+    Value: !Ref SyncFunction
+
+  FunctionArn:
+    Description: ARN of the sync Lambda function.
     Value: !GetAtt SyncFunction.Arn
+
+  DynamoDBTableName:
+    Description: Name of the DynamoDB table for donation tracking.
+    Value: !Ref DonationTrackerTable
+
+  RefreshTokenSecretArn:
+    Description: ARN of the Secrets Manager secret storing the Blackbaud refresh token.
+    Value: !Ref BlackbaudRefreshTokenSecret
+
+  SSMParameterName:
+    Description: Name of the SSM parameter storing last sync time.
+    Value: !Sub /${AWS::StackName}/last-sync-time
+
+  LogGroupName:
+    Description: CloudWatch Log Group for the Lambda function.
+    Value: !Ref SyncFunctionLogGroup
