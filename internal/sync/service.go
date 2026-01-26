@@ -192,28 +192,47 @@ func (s *Service) getRecurringContext(ctx context.Context, donation fundraiseup.
 		return recurringContext{}, nil
 	}
 
-	existing, err := s.donationTracker.DonationsByRecurringID(ctx, donation.RecurringID())
-	if err != nil {
-		return recurringContext{}, fmt.Errorf("querying recurring donations: %w", err)
+	// Use FundraiseUp's installment number for sequence if available.
+	// This avoids GSI eventual consistency issues when processing multiple
+	// installments from the same series in a single sync run.
+	seqNum := donation.InstallmentNumber()
+	if seqNum < 1 {
+		seqNum = 1
 	}
 
-	if len(existing) == 0 {
-		return recurringContext{
-			isFirstInSeries: true,
-			sequenceNumber:  1,
-		}, nil
+	isFirst := seqNum == 1
+
+	// For subsequent payments, query for the first gift ID to link to.
+	if !isFirst {
+		existing, err := s.donationTracker.DonationsByRecurringID(ctx, donation.RecurringID())
+		if err != nil {
+			return recurringContext{}, fmt.Errorf("querying recurring donations: %w", err)
+		}
+
+		if len(existing) > 0 {
+			return recurringContext{
+				firstGiftID:     existing[0].FirstGiftID,
+				isFirstInSeries: false,
+				sequenceNumber:  seqNum,
+			}, nil
+		}
+		// No existing records found - treat as first even if installment > 1.
+		// This handles cases where we missed earlier installments.
+		isFirst = true
 	}
 
-	// Return context with first gift ID and next sequence number.
 	return recurringContext{
-		firstGiftID:     existing[0].FirstGiftID,
-		isFirstInSeries: false,
-		sequenceNumber:  len(existing) + 1,
+		isFirstInSeries: isFirst,
+		sequenceNumber:  seqNum,
 	}, nil
 }
 
-func (s *Service) mapDonationToGift(donation fundraiseup.Donation, recCtx recurringContext) *blackbaud.Gift {
-	gift := donation.ToDomainType()
+func (s *Service) mapDonationToGift(donation fundraiseup.Donation, recCtx recurringContext) (*blackbaud.Gift, error) {
+	gift, err := donation.ToDomainType()
+	if err != nil {
+		return nil, fmt.Errorf("converting donation to gift: %w", err)
+	}
+
 	gift.Type = s.giftDefaults.Type
 	gift.GiftSplits = []blackbaud.GiftSplit{{
 		Amount:     gift.Amount,
@@ -233,7 +252,7 @@ func (s *Service) mapDonationToGift(donation fundraiseup.Donation, recCtx recurr
 		}
 	}
 
-	return gift
+	return gift, nil
 }
 
 func (s *Service) trackDonation(
@@ -289,7 +308,11 @@ func (s *Service) processDonation(ctx context.Context, donation fundraiseup.Dona
 	}
 
 	// Map donation to gift with recurring attributes.
-	gift := s.mapDonationToGift(donation, recCtx)
+	gift, err := s.mapDonationToGift(donation, recCtx)
+	if err != nil {
+		result.Error = fmt.Errorf("mapping donation to gift: %w", err)
+		return result
+	}
 	gift.ConstituentID = constituentID
 
 	if existingGiftID != "" {

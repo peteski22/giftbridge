@@ -271,6 +271,7 @@ func TestGetRecurringContext(t *testing.T) {
 		"first recurring donation returns isFirstInSeries true": {
 			donation: fundraiseup.Donation{
 				ID:            "don_123",
+				Installment:   "1",
 				RecurringPlan: &fundraiseup.RecurringPlan{ID: "rec_456"},
 			},
 			tracker: &mockDonationTracker{},
@@ -283,6 +284,7 @@ func TestGetRecurringContext(t *testing.T) {
 		"subsequent recurring donation returns first gift ID": {
 			donation: fundraiseup.Donation{
 				ID:            "don_002",
+				Installment:   "2",
 				RecurringPlan: &fundraiseup.RecurringPlan{ID: "rec_456"},
 			},
 			tracker: &mockDonationTracker{
@@ -303,6 +305,19 @@ func TestGetRecurringContext(t *testing.T) {
 				firstGiftID:     "gift_001",
 				isFirstInSeries: false,
 				sequenceNumber:  2,
+			},
+			wantErr: false,
+		},
+		"uses installment number for sequence even without prior records": {
+			donation: fundraiseup.Donation{
+				ID:            "don_003",
+				Installment:   "3",
+				RecurringPlan: &fundraiseup.RecurringPlan{ID: "rec_456"},
+			},
+			tracker: &mockDonationTracker{},
+			want: recurringContext{
+				isFirstInSeries: true,
+				sequenceNumber:  3,
 			},
 			wantErr: false,
 		},
@@ -396,8 +411,9 @@ func TestMapDonationToGift(t *testing.T) {
 				},
 			}
 
-			got := svc.mapDonationToGift(tc.donation, tc.recCtx)
+			got, err := svc.mapDonationToGift(tc.donation, tc.recCtx)
 
+			require.NoError(t, err)
 			require.Equal(t, tc.wantLinkedGifts, got.LinkedGifts)
 			require.Equal(t, tc.wantLookupID, got.LookupID)
 			require.Equal(t, tc.wantSubtype, got.Subtype)
