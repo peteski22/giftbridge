@@ -30,6 +30,9 @@ const (
 	// EnvBlackbaudTokenURL is the OAuth token endpoint URL.
 	EnvBlackbaudTokenURL = "BLACKBAUD_TOKEN_URL"
 
+	// EnvDynamoDBIndexName is the DynamoDB Global Secondary Index for recurring donation queries.
+	EnvDynamoDBIndexName = "DYNAMODB_INDEX_NAME"
+
 	// EnvDynamoDBTableName is the DynamoDB table for tracking donations.
 	EnvDynamoDBTableName = "DYNAMODB_TABLE_NAME"
 
@@ -81,6 +84,9 @@ type Blackbaud struct {
 
 // DynamoDB holds AWS DynamoDB configuration.
 type DynamoDB struct {
+	// IndexName is the Global Secondary Index name for querying donations by recurring ID.
+	IndexName string
+
 	// TableName is the name of the DynamoDB table for tracking donations.
 	TableName string
 }
@@ -180,6 +186,7 @@ func Load() (*Settings, error) {
 			TokenURL:              envOrDefault(EnvBlackbaudTokenURL, "https://oauth2.sky.blackbaud.com/token"),
 		},
 		DynamoDB: DynamoDB{
+			IndexName: envOrDefault(EnvDynamoDBIndexName, "RecurringIdIndex"),
 			TableName: strings.TrimSpace(os.Getenv(EnvDynamoDBTableName)),
 		},
 		FundraiseUp: FundraiseUp{
