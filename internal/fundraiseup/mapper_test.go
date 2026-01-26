@@ -78,10 +78,12 @@ func TestDonation_ToDomainType(t *testing.T) {
 	tests := map[string]struct {
 		donation *Donation
 		want     *blackbaud.Gift
+		wantErr  bool
 	}{
 		"nil donation": {
 			donation: nil,
 			want:     nil,
+			wantErr:  false,
 		},
 		"basic donation": {
 			donation: &Donation{
@@ -96,6 +98,7 @@ func TestDonation_ToDomainType(t *testing.T) {
 				ExternalID:    "don_123",
 				PaymentMethod: "Credit card",
 			},
+			wantErr: false,
 		},
 		"donation with comment": {
 			donation: &Donation{
@@ -112,6 +115,7 @@ func TestDonation_ToDomainType(t *testing.T) {
 				PaymentMethod: "PayPal",
 				Reference:     "In memory of John",
 			},
+			wantErr: false,
 		},
 		"donation without payment method": {
 			donation: &Donation{
@@ -124,6 +128,16 @@ func TestDonation_ToDomainType(t *testing.T) {
 				Date:       "2024-01-15",
 				ExternalID: "don_minimal",
 			},
+			wantErr: false,
+		},
+		"invalid amount returns error": {
+			donation: &Donation{
+				Amount:    "invalid",
+				CreatedAt: createdAt,
+				ID:        "don_bad",
+			},
+			want:    nil,
+			wantErr: true,
 		},
 	}
 
@@ -131,9 +145,15 @@ func TestDonation_ToDomainType(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tc.donation.ToDomainType()
+			got, err := tc.donation.ToDomainType()
 
-			require.Equal(t, tc.want, got)
+			if tc.wantErr {
+				require.Error(t, err)
+				require.Nil(t, got)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.want, got)
+			}
 		})
 	}
 }
