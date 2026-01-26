@@ -332,12 +332,14 @@ func (s *Service) processDonation(ctx context.Context, donation fundraiseup.Dona
 		}
 		result.GiftID = giftID
 		result.GiftCreated = true
+	}
 
-		// Track the mapping.
-		if err := s.trackDonation(ctx, donation, giftID, recCtx); err != nil {
-			result.Error = fmt.Errorf("tracking donation: %w", err)
-			return result
-		}
+	// Track the mapping (upserts, so safe for both create and update paths).
+	// This ensures recurring metadata is stored even for previously-synced
+	// donations that were tracked before recurring support was added.
+	if err := s.trackDonation(ctx, donation, result.GiftID, recCtx); err != nil {
+		result.Error = fmt.Errorf("tracking donation: %w", err)
+		return result
 	}
 
 	return result
