@@ -144,25 +144,37 @@ func (t *DonationTracker) DonationsByRecurringID(ctx context.Context, recurringI
 		return nil, errors.New("recurring ID is required")
 	}
 
-	output, err := t.client.Query(ctx, &dynamodb.QueryInput{
-		TableName:              aws.String(t.tableName),
-		IndexName:              aws.String(t.indexName),
-		KeyConditionExpression: aws.String("recurring_id = :rid"),
-		ExpressionAttributeValues: map[string]types.AttributeValue{
-			":rid": &types.AttributeValueMemberS{Value: recurringID},
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("querying DynamoDB: %w", err)
-	}
+	results := make([]RecurringInfo, 0)
+	var lastKey map[string]types.AttributeValue
 
-	results := make([]RecurringInfo, 0, len(output.Items))
-	for _, item := range output.Items {
-		info, err := parseRecurringInfo(item)
-		if err != nil {
-			return nil, fmt.Errorf("parsing item: %w", err)
+	for {
+		input := &dynamodb.QueryInput{
+			TableName:              aws.String(t.tableName),
+			IndexName:              aws.String(t.indexName),
+			KeyConditionExpression: aws.String("recurring_id = :rid"),
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":rid": &types.AttributeValueMemberS{Value: recurringID},
+			},
+			ExclusiveStartKey: lastKey,
 		}
-		results = append(results, info)
+
+		output, err := t.client.Query(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("querying DynamoDB: %w", err)
+		}
+
+		for _, item := range output.Items {
+			info, err := parseRecurringInfo(item)
+			if err != nil {
+				return nil, fmt.Errorf("parsing item: %w", err)
+			}
+			results = append(results, info)
+		}
+
+		if output.LastEvaluatedKey == nil {
+			break
+		}
+		lastKey = output.LastEvaluatedKey
 	}
 
 	return results, nil
