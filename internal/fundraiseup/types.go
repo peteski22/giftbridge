@@ -11,16 +11,19 @@ const (
 	PaymentMethodApplePay PaymentMethod = "apple_pay"
 
 	// PaymentMethodBankTransfer represents a bank transfer payment.
-	PaymentMethodBankTransfer PaymentMethod = "bank_transfer"
+	PaymentMethodBankTransfer PaymentMethod = "bacs_direct_debit"
 
 	// PaymentMethodCard represents a credit or debit card payment.
-	PaymentMethodCard PaymentMethod = "card"
+	PaymentMethodCard PaymentMethod = "credit_card"
 
 	// PaymentMethodGooglePay represents a Google Pay payment.
 	PaymentMethodGooglePay PaymentMethod = "google_pay"
 
 	// PaymentMethodPayPal represents a PayPal payment.
 	PaymentMethodPayPal PaymentMethod = "paypal"
+
+	// PaymentMethodSEPA represents a SEPA direct debit payment.
+	PaymentMethodSEPA PaymentMethod = "sepa_direct_debit"
 )
 
 // Address represents a supporter's address.
@@ -38,10 +41,10 @@ type Address struct {
 	Line2 string `json:"line2"`
 
 	// PostalCode is the postal or ZIP code.
-	PostalCode string `json:"postalCode"`
+	PostalCode string `json:"postal_code"`
 
-	// State is the state or province.
-	State string `json:"state"`
+	// Region is the state or province.
+	Region string `json:"region"`
 }
 
 // Campaign represents a FundraiseUp campaign.
@@ -55,8 +58,8 @@ type Campaign struct {
 
 // Donation represents a donation from FundraiseUp.
 type Donation struct {
-	// Amount is the donation amount in cents.
-	Amount int `json:"amount"`
+	// Amount is the donation amount as a decimal string.
+	Amount string `json:"amount"`
 
 	// Campaign is the associated campaign.
 	Campaign *Campaign `json:"campaign"`
@@ -65,38 +68,71 @@ type Donation struct {
 	Comment string `json:"comment"`
 
 	// CreatedAt is the donation creation timestamp.
-	CreatedAt time.Time `json:"createdAt"`
+	CreatedAt time.Time `json:"created_at"`
 
 	// Currency is the three-letter currency code.
 	Currency string `json:"currency"`
 
 	// Designation is the fund designation.
-	Designation string `json:"designation"`
+	Designation *Designation `json:"designation"`
 
 	// ID is the unique donation identifier.
 	ID string `json:"id"`
 
-	// IsRecurring indicates if this is a recurring donation.
-	IsRecurring bool `json:"isRecurring"`
+	// Installment is the installment number for recurring donations (e.g., "1", "2").
+	Installment string `json:"installment"`
 
-	// PaymentMethod is the method used for payment.
-	PaymentMethod PaymentMethod `json:"paymentMethod"`
+	// Payment contains payment details.
+	Payment *Payment `json:"payment"`
 
-	// RecurringID links recurring donations together.
-	RecurringID string `json:"recurringId"`
+	// RecurringPlan contains recurring plan details, nil for one-off donations.
+	RecurringPlan *RecurringPlan `json:"recurring_plan"`
 
 	// Status is the donation status.
 	Status string `json:"status"`
 
 	// Supporter is the person who made the donation.
 	Supporter *Supporter `json:"supporter"`
+}
 
-	// UpdatedAt is the last update timestamp.
-	UpdatedAt time.Time `json:"updatedAt"`
+// Designation represents a fund designation.
+type Designation struct {
+	// ID is the unique designation identifier.
+	ID string `json:"id"`
+
+	// Name is the designation name.
+	Name string `json:"name"`
+}
+
+// Payment contains payment details for a donation.
+type Payment struct {
+	// Method is the payment method used.
+	Method PaymentMethod `json:"method"`
 }
 
 // PaymentMethod represents a FundraiseUp payment method.
 type PaymentMethod string
+
+// RecurringPlan represents a recurring donation plan.
+type RecurringPlan struct {
+	// CreatedAt is when the recurring plan was created.
+	CreatedAt time.Time `json:"created_at"`
+
+	// EndedAt is when the recurring plan ended, nil if active.
+	EndedAt *time.Time `json:"ended_at"`
+
+	// Frequency is the donation frequency (e.g., "monthly", "annual").
+	Frequency string `json:"frequency"`
+
+	// ID is the unique recurring plan identifier.
+	ID string `json:"id"`
+
+	// NextInstallmentAt is the next scheduled donation date.
+	NextInstallmentAt *time.Time `json:"next_installment_at"`
+
+	// Status is the recurring plan status (e.g., "active", "canceled").
+	Status string `json:"status"`
+}
 
 // Supporter represents a person who has donated via FundraiseUp.
 type Supporter struct {
@@ -107,13 +143,13 @@ type Supporter struct {
 	Email string `json:"email"`
 
 	// FirstName is the supporter's first name.
-	FirstName string `json:"firstName"`
+	FirstName string `json:"first_name"`
 
 	// ID is the unique supporter identifier.
 	ID string `json:"id"`
 
 	// LastName is the supporter's last name.
-	LastName string `json:"lastName"`
+	LastName string `json:"last_name"`
 
 	// Phone is the supporter's phone number.
 	Phone string `json:"phone"`
@@ -125,8 +161,5 @@ type donationsResponse struct {
 	Data []Donation `json:"data"`
 
 	// HasMore indicates if there are more results.
-	HasMore bool `json:"hasMore"`
-
-	// NextCursor is the pagination cursor for the next page.
-	NextCursor string `json:"nextCursor"`
+	HasMore bool `json:"has_more"`
 }

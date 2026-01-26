@@ -2,6 +2,7 @@ package fundraiseup
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/peteski22/giftbridge/internal/blackbaud"
 )
@@ -36,7 +37,7 @@ func (a *Address) ToDomainType() *blackbaud.Address {
 		Country:      a.Country,
 		PostCode:     a.PostalCode,
 		Primary:      true,
-		State:        a.State,
+		State:        a.Region,
 		Type:         "Home",
 	}
 }
@@ -49,8 +50,8 @@ func (d *Donation) ToDomainType() *blackbaud.Gift {
 		return nil
 	}
 
-	// FundraiseUp amount is in cents, Blackbaud expects decimal.
-	amount := float64(d.Amount) / 100
+	// FundraiseUp amount is a decimal string, Blackbaud expects float.
+	amount, _ := strconv.ParseFloat(d.Amount, 64)
 
 	gift := &blackbaud.Gift{
 		Amount:     &blackbaud.GiftAmount{Value: amount},
@@ -58,8 +59,8 @@ func (d *Donation) ToDomainType() *blackbaud.Gift {
 		ExternalID: d.ID,
 	}
 
-	if d.PaymentMethod != "" {
-		gift.PaymentMethod = d.PaymentMethod.ToDomainType()
+	if d.Payment != nil && d.Payment.Method != "" {
+		gift.PaymentMethod = d.Payment.Method.ToDomainType()
 	}
 
 	if d.Comment != "" {
@@ -74,7 +75,7 @@ func (pm PaymentMethod) ToDomainType() string {
 	switch pm {
 	case PaymentMethodCard, PaymentMethodApplePay, PaymentMethodGooglePay:
 		return "Credit card"
-	case PaymentMethodBankTransfer, PaymentMethodACH:
+	case PaymentMethodBankTransfer, PaymentMethodACH, PaymentMethodSEPA:
 		return "Direct debit"
 	case PaymentMethodPayPal:
 		return "PayPal"
@@ -114,4 +115,17 @@ func (s *Supporter) ToDomainType() *blackbaud.Constituent {
 	constituent.Address = s.Address.ToDomainType()
 
 	return constituent
+}
+
+// IsRecurring returns true if the donation is part of a recurring plan.
+func (d *Donation) IsRecurring() bool {
+	return d != nil && d.RecurringPlan != nil
+}
+
+// RecurringID returns the recurring plan ID, or empty string if not recurring.
+func (d *Donation) RecurringID() string {
+	if d == nil || d.RecurringPlan == nil {
+		return ""
+	}
+	return d.RecurringPlan.ID
 }

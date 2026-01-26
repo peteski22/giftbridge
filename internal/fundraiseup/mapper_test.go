@@ -26,7 +26,7 @@ func TestAddress_ToDomainType(t *testing.T) {
 				Country:    "UK",
 				Line1:      "123 Main Street",
 				PostalCode: "SW1A 1AA",
-				State:      "England",
+				Region:     "England",
 			},
 			want: &blackbaud.Address{
 				AddressLines: "123 Main Street",
@@ -45,7 +45,7 @@ func TestAddress_ToDomainType(t *testing.T) {
 				Line1:      "456 Park Ave",
 				Line2:      "Suite 100",
 				PostalCode: "10022",
-				State:      "NY",
+				Region:     "NY",
 			},
 			want: &blackbaud.Address{
 				AddressLines: "456 Park Ave\nSuite 100",
@@ -85,10 +85,10 @@ func TestDonation_ToDomainType(t *testing.T) {
 		},
 		"basic donation": {
 			donation: &Donation{
-				Amount:        5000,
-				CreatedAt:     createdAt,
-				ID:            "don_123",
-				PaymentMethod: PaymentMethodCard,
+				Amount:    "50.00",
+				CreatedAt: createdAt,
+				ID:        "don_123",
+				Payment:   &Payment{Method: PaymentMethodCard},
 			},
 			want: &blackbaud.Gift{
 				Amount:        &blackbaud.GiftAmount{Value: 50.00},
@@ -99,11 +99,11 @@ func TestDonation_ToDomainType(t *testing.T) {
 		},
 		"donation with comment": {
 			donation: &Donation{
-				Amount:        10000,
-				Comment:       "In memory of John",
-				CreatedAt:     createdAt,
-				ID:            "don_789",
-				PaymentMethod: PaymentMethodPayPal,
+				Amount:    "100.00",
+				Comment:   "In memory of John",
+				CreatedAt: createdAt,
+				ID:        "don_789",
+				Payment:   &Payment{Method: PaymentMethodPayPal},
 			},
 			want: &blackbaud.Gift{
 				Amount:        &blackbaud.GiftAmount{Value: 100.00},
@@ -115,7 +115,7 @@ func TestDonation_ToDomainType(t *testing.T) {
 		},
 		"donation without payment method": {
 			donation: &Donation{
-				Amount:    2500,
+				Amount:    "25.00",
 				CreatedAt: createdAt,
 				ID:        "don_minimal",
 			},
@@ -279,7 +279,7 @@ func TestSupporter_ToDomainType(t *testing.T) {
 					Line1:      "456 Park Ave",
 					Line2:      "Apt 5",
 					PostalCode: "10022",
-					State:      "NY",
+					Region:     "NY",
 				},
 				Email:     "john@example.com",
 				FirstName: "John",

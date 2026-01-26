@@ -110,12 +110,12 @@ func TestClient_Donations(t *testing.T) {
 		t.Parallel()
 
 		donations := []Donation{
-			{ID: "don_1", Amount: 1000, Currency: "USD"},
-			{ID: "don_2", Amount: 2000, Currency: "USD"},
+			{ID: "don_1", Amount: "10.00", Currency: "USD"},
+			{ID: "don_2", Amount: "20.00", Currency: "USD"},
 		}
 
 		server := newMockDonationsServer(t, []donationsResponse{
-			{Data: donations, HasMore: false, NextCursor: ""},
+			{Data: donations, HasMore: false},
 		})
 		defer server.Close()
 
@@ -133,12 +133,12 @@ func TestClient_Donations(t *testing.T) {
 	t.Run("fetches multiple pages of donations", func(t *testing.T) {
 		t.Parallel()
 
-		page1 := []Donation{{ID: "don_1", Amount: 1000}}
-		page2 := []Donation{{ID: "don_2", Amount: 2000}}
+		page1 := []Donation{{ID: "don_1", Amount: "10.00"}}
+		page2 := []Donation{{ID: "don_2", Amount: "20.00"}}
 
 		server := newMockDonationsServer(t, []donationsResponse{
-			{Data: page1, HasMore: true, NextCursor: "cursor_1"},
-			{Data: page2, HasMore: false, NextCursor: ""},
+			{Data: page1, HasMore: true},
+			{Data: page2, HasMore: false},
 		})
 		defer server.Close()
 
