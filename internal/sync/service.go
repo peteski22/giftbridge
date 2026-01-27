@@ -233,7 +233,9 @@ func (s *Service) mapDonationToGift(donation fundraiseup.Donation, recCtx recurr
 		return nil, fmt.Errorf("converting donation to gift: %w", err)
 	}
 
-	gift.Type = s.giftDefaults.Type
+	// Common fields matching FundraiseUp integration.
+	gift.BatchPrefix = "FundraiseUp"
+	gift.IsManual = true
 	gift.GiftSplits = []blackbaud.GiftSplit{{
 		Amount:     gift.Amount,
 		FundID:     s.giftDefaults.FundID,
@@ -241,15 +243,27 @@ func (s *Service) mapDonationToGift(donation fundraiseup.Donation, recCtx recurr
 		AppealID:   s.giftDefaults.AppealID,
 	}}
 
-	// Apply recurring gift attributes.
 	if donation.IsRecurring() && donation.RecurringID() != "" {
+		// Recurring donations use RecurringGift or RecurringGiftPayment types.
 		gift.LookupID = donation.RecurringID()
-		gift.Subtype = "Recurring"
+		gift.Subtype = blackbaud.GiftSubtypeRecurring
+		gift.Origin = blackbaud.GiftOrigin{
+			DonationID: donation.ID,
+			Name:       "FundraiseUp",
+		}.String()
 
-		// Link to first gift if this is a subsequent payment.
-		if !recCtx.isFirstInSeries && recCtx.firstGiftID != "" {
-			gift.LinkedGifts = []string{recCtx.firstGiftID}
+		if recCtx.isFirstInSeries {
+			gift.Type = blackbaud.GiftTypeRecurringGift
+		} else {
+			gift.Type = blackbaud.GiftTypeRecurringGiftPayment
+			if recCtx.firstGiftID != "" {
+				gift.LinkedGifts = []string{recCtx.firstGiftID}
+			}
 		}
+	} else {
+		// One-off donations use the configured gift type.
+		gift.Type = blackbaud.GiftType(s.giftDefaults.Type)
+		gift.LookupID = donation.ID
 	}
 
 	return gift, nil

@@ -24,17 +24,58 @@ This document describes how data is mapped from FundraiseUp to Blackbaud Raiser'
 
 Address is marked as primary with type "Home".
 
-## Donation
+## Donation (One-off)
 
-| FundraiseUp    | Blackbaud      | Notes                            |
-|----------------|----------------|----------------------------------|
-| Amount         | Gift Amount    |                                  |
-| Date Created   | Gift Date      |                                  |
-| Donation ID    | External ID    | Used to prevent duplicate syncs  |
-| Comment        | Reference      | Donor's comment on the donation  |
-| Payment Method | Payment Method | See payment method mapping below |
+| FundraiseUp    | Blackbaud      | Notes                                          |
+|----------------|----------------|------------------------------------------------|
+| Amount         | Gift Amount    |                                                |
+| Date Created   | Gift Date      |                                                |
+| Donation ID    | Lookup ID      | User-defined identifier for deduplication     |
+| Comment        | Reference      | Donor's comment on the donation                |
+| Payment Method | Payment Method | See payment method mapping below               |
+| —              | Batch Prefix   | Always "FundraiseUp"                           |
+| —              | Is Manual      | Always true                                    |
+| —              | Type           | "Donation" (from configuration)               |
 
-Gift Type and Fund ID are set from your configuration, not mapped from FundraiseUp.
+## Recurring Donations
+
+Recurring donations use different Blackbaud gift types to properly track the series.
+
+| FundraiseUp        | Blackbaud    | Notes                                                   |
+|--------------------|--------------|---------------------------------------------------------|
+| Amount             | Gift Amount  |                                                         |
+| Date Created       | Gift Date    |                                                         |
+| Recurring Plan ID  | Lookup ID    | Groups all payments in the same series                  |
+| Donation ID        | Origin       | JSON: `{"donation_id":"...","name":"FundraiseUp"}`      |
+| Comment            | Reference    | Donor's comment                                         |
+| Payment Method     | Payment Method | See payment method mapping below                      |
+| —                  | Batch Prefix | Always "FundraiseUp"                                    |
+| —                  | Is Manual    | Always true                                             |
+| —                  | Type         | "RecurringGift" (first) or "RecurringGiftPayment" (subsequent) |
+| —                  | Subtype      | Always "Recurring"                                      |
+| —                  | Linked Gifts | Points to first gift (subsequent payments only)         |
+
+### Gift Type Logic
+
+| Donation Type       | Blackbaud Type         | Linked Gifts        |
+|---------------------|------------------------|---------------------|
+| One-off             | Donation               | —                   |
+| First recurring     | RecurringGift          | —                   |
+| Subsequent recurring | RecurringGiftPayment  | First gift ID       |
+
+### How Recurring Linking Works
+
+1. When the **first payment** in a recurring series is synced, a new gift is created with:
+   - Type: `RecurringGift`
+   - Lookup ID: The Recurring Plan ID
+   - Origin: JSON containing the donation ID
+
+2. When **subsequent payments** are synced:
+   - Type: `RecurringGiftPayment`
+   - Linked to the first gift using Blackbaud's Linked Gifts feature
+   - Same Lookup ID as the first payment (Recurring Plan ID)
+
+This allows you to see the complete donation history for a recurring donor.
 
 ## Payment Methods
 
@@ -48,23 +89,6 @@ Gift Type and Fund ID are set from your configuration, not mapped from Fundraise
 | SEPA Direct Debit    | Direct debit |
 | PayPal               | PayPal       |
 | Other / Unknown      | Other        |
-
-## Recurring Donations
-
-Recurring donations are linked together in Blackbaud so you can see the full series of payments.
-
-| FundraiseUp        | Blackbaud    | Notes                                                   |
-|--------------------|--------------|---------------------------------------------------------|
-| Recurring Plan ID  | Lookup ID    | Identifies all payments in the same series              |
-| Installment Number | —            | Used to determine payment sequence                      |
-| —                  | Gift Subtype | Automatically set to "Recurring"                        |
-| —                  | Linked Gifts | Each payment links back to the first gift in the series |
-
-### How Recurring Linking Works
-
-1. When the **first payment** in a recurring series is synced, a new gift is created with the Recurring Plan ID stored as the Lookup ID.
-
-2. When **subsequent payments** are synced, they are linked to the first gift using Blackbaud's Linked Gifts feature. This allows you to see the complete donation history for a recurring donor.
 
 ## What's Not Mapped
 

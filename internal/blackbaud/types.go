@@ -1,6 +1,45 @@
 // Package blackbaud provides a client for the Blackbaud SKY API.
 package blackbaud
 
+import "encoding/json"
+
+// GiftType represents the type of gift in Raiser's Edge NXT.
+type GiftType string
+
+const (
+	// GiftTypeDonation is a one-off donation.
+	GiftTypeDonation GiftType = "Donation"
+
+	// GiftTypeRecurringGift is the first payment in a recurring series.
+	GiftTypeRecurringGift GiftType = "RecurringGift"
+
+	// GiftTypeRecurringGiftPayment is a subsequent payment in a recurring series.
+	GiftTypeRecurringGiftPayment GiftType = "RecurringGiftPayment"
+)
+
+// GiftSubtype represents the subtype of gift in Raiser's Edge NXT.
+type GiftSubtype string
+
+const (
+	// GiftSubtypeRecurring indicates a recurring gift.
+	GiftSubtypeRecurring GiftSubtype = "Recurring"
+)
+
+// GiftOrigin contains source system information for a gift.
+type GiftOrigin struct {
+	// DonationID is the original donation identifier from the source system.
+	DonationID string `json:"donation_id"`
+
+	// Name is the source system name.
+	Name string `json:"name"`
+}
+
+// String returns the JSON representation of the origin.
+func (o GiftOrigin) String() string {
+	b, _ := json.Marshal(o)
+	return string(b)
+}
+
 // Address represents a constituent's address.
 type Address struct {
 	// AddressLines contains the street address.
@@ -69,14 +108,14 @@ type Gift struct {
 	// BatchNumber is the batch identifier.
 	BatchNumber string `json:"batch_number,omitempty"`
 
+	// BatchPrefix is the batch prefix for grouping gifts.
+	BatchPrefix string `json:"batch_prefix,omitempty"`
+
 	// ConstituentID links the gift to a constituent.
 	ConstituentID string `json:"constituent_id"`
 
 	// Date is the gift date in YYYY-MM-DD format.
 	Date string `json:"date"`
-
-	// ExternalID is an external system identifier.
-	ExternalID string `json:"external_id,omitempty"`
 
 	// GiftAidAmount is the UK Gift Aid amount.
 	GiftAidAmount *GiftAmount `json:"gift_aid_amount,omitempty"`
@@ -96,11 +135,17 @@ type Gift struct {
 	// IsAnonymous indicates if the gift is anonymous.
 	IsAnonymous bool `json:"is_anonymous,omitempty"`
 
+	// IsManual indicates if the gift was entered manually.
+	IsManual bool `json:"is_manual,omitempty"`
+
 	// LinkedGifts contains IDs of related gifts.
 	LinkedGifts []string `json:"linked_gifts,omitempty"`
 
 	// LookupID is the user-defined lookup identifier.
 	LookupID string `json:"lookup_id,omitempty"`
+
+	// Origin contains source system information as JSON with name and donation_id fields.
+	Origin string `json:"origin,omitempty"`
 
 	// PaymentMethod is the payment method used.
 	PaymentMethod string `json:"payment_method,omitempty"`
@@ -121,13 +166,13 @@ type Gift struct {
 	SoftCredits []SoftCredit `json:"soft_credits,omitempty"`
 
 	// Subtype is the gift subtype.
-	Subtype string `json:"subtype,omitempty"`
+	Subtype GiftSubtype `json:"subtype,omitempty"`
 
 	// Tribute contains tribute or memorial information.
 	Tribute *Tribute `json:"tribute,omitempty"`
 
 	// Type is the gift type (e.g., Donation, Pledge).
-	Type string `json:"type"`
+	Type GiftType `json:"type"`
 }
 
 // GiftAmount represents an amount with currency.

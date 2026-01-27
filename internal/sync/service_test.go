@@ -351,11 +351,15 @@ func TestMapDonationToGift(t *testing.T) {
 	tests := map[string]struct {
 		donation        fundraiseup.Donation
 		recCtx          recurringContext
+		wantBatchPrefix string
+		wantIsManual    bool
 		wantLinkedGifts []string
 		wantLookupID    string
-		wantSubtype     string
+		wantOrigin      string
+		wantSubtype     blackbaud.GiftSubtype
+		wantType        blackbaud.GiftType
 	}{
-		"one-off donation has no recurring attributes": {
+		"one-off donation uses Donation type with donation ID as LookupID": {
 			donation: fundraiseup.Donation{
 				ID:            "don_123",
 				Amount:        "50.00",
@@ -363,11 +367,15 @@ func TestMapDonationToGift(t *testing.T) {
 				RecurringPlan: nil,
 			},
 			recCtx:          recurringContext{},
+			wantBatchPrefix: "FundraiseUp",
+			wantIsManual:    true,
 			wantLinkedGifts: nil,
-			wantLookupID:    "",
+			wantLookupID:    "don_123",
+			wantOrigin:      "",
 			wantSubtype:     "",
+			wantType:        blackbaud.GiftTypeDonation,
 		},
-		"first recurring donation has LookupID and Subtype but no LinkedGifts": {
+		"first recurring donation uses RecurringGift type": {
 			donation: fundraiseup.Donation{
 				ID:            "don_123",
 				Amount:        "50.00",
@@ -378,11 +386,15 @@ func TestMapDonationToGift(t *testing.T) {
 				isFirstInSeries: true,
 				sequenceNumber:  1,
 			},
+			wantBatchPrefix: "FundraiseUp",
+			wantIsManual:    true,
 			wantLinkedGifts: nil,
 			wantLookupID:    "rec_456",
-			wantSubtype:     "Recurring",
+			wantOrigin:      `{"donation_id":"don_123","name":"FundraiseUp"}`,
+			wantSubtype:     blackbaud.GiftSubtypeRecurring,
+			wantType:        blackbaud.GiftTypeRecurringGift,
 		},
-		"subsequent recurring donation has LinkedGifts": {
+		"subsequent recurring donation uses RecurringGiftPayment type with LinkedGifts": {
 			donation: fundraiseup.Donation{
 				ID:            "don_124",
 				Amount:        "50.00",
@@ -394,9 +406,13 @@ func TestMapDonationToGift(t *testing.T) {
 				isFirstInSeries: false,
 				sequenceNumber:  2,
 			},
+			wantBatchPrefix: "FundraiseUp",
+			wantIsManual:    true,
 			wantLinkedGifts: []string{"gift_001"},
 			wantLookupID:    "rec_456",
-			wantSubtype:     "Recurring",
+			wantOrigin:      `{"donation_id":"don_124","name":"FundraiseUp"}`,
+			wantSubtype:     blackbaud.GiftSubtypeRecurring,
+			wantType:        blackbaud.GiftTypeRecurringGiftPayment,
 		},
 	}
 
@@ -414,10 +430,13 @@ func TestMapDonationToGift(t *testing.T) {
 			got, err := svc.mapDonationToGift(tc.donation, tc.recCtx)
 
 			require.NoError(t, err)
+			require.Equal(t, tc.wantBatchPrefix, got.BatchPrefix)
+			require.Equal(t, tc.wantIsManual, got.IsManual)
 			require.Equal(t, tc.wantLinkedGifts, got.LinkedGifts)
 			require.Equal(t, tc.wantLookupID, got.LookupID)
+			require.Equal(t, tc.wantOrigin, got.Origin)
 			require.Equal(t, tc.wantSubtype, got.Subtype)
-			require.Equal(t, "Donation", got.Type)
+			require.Equal(t, tc.wantType, got.Type)
 			require.Len(t, got.GiftSplits, 1)
 			require.Equal(t, "fund-123", got.GiftSplits[0].FundID)
 		})
