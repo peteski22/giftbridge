@@ -4,8 +4,6 @@ package sync
 import (
 	"context"
 	"time"
-
-	"github.com/peteski22/giftbridge/internal/storage"
 )
 
 // DonationResult contains the outcome of processing a single donation.
@@ -32,28 +30,19 @@ type DonationResult struct {
 	GiftUpdated bool
 }
 
-// DonationTracker tracks the mapping between FundraiseUp donation IDs and Blackbaud gift IDs.
-type DonationTracker interface {
-	// DonationsByRecurringID retrieves all donations in a recurring series.
-	DonationsByRecurringID(ctx context.Context, recurringID string) ([]storage.RecurringInfo, error)
-
-	// GiftID returns the Blackbaud gift ID for a FundraiseUp donation, or empty if not tracked.
-	GiftID(ctx context.Context, donationID string) (string, error)
-
-	// Track stores the mapping between a donation ID and gift ID.
-	Track(ctx context.Context, donationID string, giftID string) error
-
-	// TrackRecurring stores recurring donation metadata including series information.
-	TrackRecurring(ctx context.Context, info storage.RecurringInfo) error
-}
-
 // Result contains the outcome of a sync operation.
 type Result struct {
 	// ConstituentsCreated is the number of new constituents created.
 	ConstituentsCreated int
 
+	// ConstituentsExisting is the number of constituents that already existed.
+	ConstituentsExisting int
+
 	// DonationsProcessed is the total number of donations processed.
 	DonationsProcessed int
+
+	// DryRun indicates this was a dry-run (no writes to Blackbaud).
+	DryRun bool
 
 	// Errors contains any errors that occurred during the sync.
 	Errors []error

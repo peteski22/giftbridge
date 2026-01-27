@@ -220,3 +220,18 @@ func (o GiftOrigin) String() string {
 	}
 	return string(b)
 }
+
+// ParseGiftOrigin deserializes a gift's origin field back into a GiftOrigin struct.
+// This is used to extract the original FundraiseUp donation ID from recurring gifts,
+// enabling deduplication by matching against the donation being processed.
+// Returns an empty GiftOrigin if the input is empty.
+func ParseGiftOrigin(origin string) (GiftOrigin, error) {
+	if origin == "" {
+		return GiftOrigin{}, nil
+	}
+	var o GiftOrigin
+	if err := json.Unmarshal([]byte(origin), &o); err != nil {
+		return GiftOrigin{}, err
+	}
+	return o, nil
+}

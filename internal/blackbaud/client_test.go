@@ -233,3 +233,112 @@ func TestConfigValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestGiftOriginString(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		origin GiftOrigin
+		want   string
+	}{
+		"full origin": {
+			origin: GiftOrigin{
+				DonationID: "don_123",
+				Name:       "FundraiseUp",
+			},
+			want: `{"donation_id":"don_123","name":"FundraiseUp"}`,
+		},
+		"empty origin": {
+			origin: GiftOrigin{},
+			want:   `{"donation_id":"","name":""}`,
+		},
+		"only donation ID": {
+			origin: GiftOrigin{
+				DonationID: "don_456",
+			},
+			want: `{"donation_id":"don_456","name":""}`,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got := tc.origin.String()
+
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestParseGiftOrigin(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		input   string
+		want    GiftOrigin
+		wantErr bool
+	}{
+		"valid origin JSON": {
+			input: `{"donation_id":"don_123","name":"FundraiseUp"}`,
+			want: GiftOrigin{
+				DonationID: "don_123",
+				Name:       "FundraiseUp",
+			},
+			wantErr: false,
+		},
+		"empty string returns empty origin": {
+			input:   "",
+			want:    GiftOrigin{},
+			wantErr: false,
+		},
+		"partial JSON with only donation_id": {
+			input: `{"donation_id":"don_456"}`,
+			want: GiftOrigin{
+				DonationID: "don_456",
+			},
+			wantErr: false,
+		},
+		"invalid JSON returns error": {
+			input:   `{invalid json}`,
+			want:    GiftOrigin{},
+			wantErr: true,
+		},
+		"non-object JSON returns error": {
+			input:   `"just a string"`,
+			want:    GiftOrigin{},
+			wantErr: true,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := ParseGiftOrigin(tc.input)
+
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.want, got)
+			}
+		})
+	}
+}
+
+func TestGiftOriginRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	// Test that String() and ParseGiftOrigin() are inverse operations.
+	original := GiftOrigin{
+		DonationID: "don_789",
+		Name:       "FundraiseUp",
+	}
+
+	serialized := original.String()
+	parsed, err := ParseGiftOrigin(serialized)
+
+	require.NoError(t, err)
+	require.Equal(t, original, parsed)
+}

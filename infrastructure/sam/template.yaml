@@ -74,35 +74,6 @@ Resources:
         - Key: Application
           Value: giftbridge
 
-  # DynamoDB table for tracking donation ID to gift ID mappings.
-  DonationTrackerTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub ${AWS::StackName}-donations
-      BillingMode: PAY_PER_REQUEST
-      AttributeDefinitions:
-        - AttributeName: donation_id
-          AttributeType: S
-        - AttributeName: recurring_id
-          AttributeType: S
-        - AttributeName: created_at
-          AttributeType: S
-      KeySchema:
-        - AttributeName: donation_id
-          KeyType: HASH
-      GlobalSecondaryIndexes:
-        - IndexName: RecurringIdIndex
-          KeySchema:
-            - AttributeName: recurring_id
-              KeyType: HASH
-            - AttributeName: created_at
-              KeyType: RANGE
-          Projection:
-            ProjectionType: ALL
-      Tags:
-        - Key: Application
-          Value: giftbridge
-
   # SSM Parameter for storing last sync timestamp.
   LastSyncParameter:
     Type: AWS::SSM::Parameter
@@ -132,7 +103,6 @@ Resources:
           BLACKBAUD_ENVIRONMENT_ID: !Ref BlackbaudEnvironmentId
           BLACKBAUD_REFRESH_TOKEN_SECRET_ARN: !Ref BlackbaudRefreshTokenSecret
           BLACKBAUD_SUBSCRIPTION_KEY: !Ref BlackbaudSubscriptionKey
-          DYNAMODB_TABLE_NAME: !Ref DonationTrackerTable
           FUNDRAISEUP_API_KEY: !Ref FundraiseUpApiKey
           GIFT_APPEAL_ID: !Ref GiftAppealId
           GIFT_CAMPAIGN_ID: !Ref GiftCampaignId
@@ -147,8 +117,6 @@ Resources:
             Description: Triggers GiftBridge sync on schedule.
             Enabled: true
       Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref DonationTrackerTable
         - SSMParameterReadPolicy:
             ParameterName: !Sub ${AWS::StackName}/last-sync-time
         - Statement:
@@ -183,10 +151,6 @@ Outputs:
   FunctionArn:
     Description: ARN of the sync Lambda function.
     Value: !GetAtt SyncFunction.Arn
-
-  DynamoDBTableName:
-    Description: Name of the DynamoDB table for donation tracking.
-    Value: !Ref DonationTrackerTable
 
   RefreshTokenSecretArn:
     Description: ARN of the Secrets Manager secret storing the Blackbaud refresh token.
