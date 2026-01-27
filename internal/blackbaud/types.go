@@ -244,6 +244,15 @@ type constituentSearchResponse struct {
 	Value []Constituent `json:"value"`
 }
 
+// giftListResponse represents the gift list API response.
+type giftListResponse struct {
+	// Count is the total number of results.
+	Count int `json:"count"`
+
+	// Value contains the gifts.
+	Value []Gift `json:"value"`
+}
+
 // createResponse represents the response when creating a resource.
 type createResponse struct {
 	// ID is the identifier of the created resource.

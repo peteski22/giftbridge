@@ -25,6 +25,9 @@ type DonationResult struct {
 	// GiftID is the Blackbaud gift identifier.
 	GiftID string
 
+	// GiftSkippedExisting indicates the gift already existed in Blackbaud.
+	GiftSkippedExisting bool
+
 	// GiftUpdated indicates if an existing gift was updated.
 	GiftUpdated bool
 }
@@ -57,6 +60,9 @@ type Result struct {
 
 	// GiftsCreated is the number of new gifts created.
 	GiftsCreated int
+
+	// GiftsSkippedExisting is the number of gifts skipped because they already existed.
+	GiftsSkippedExisting int
 
 	// GiftsUpdated is the number of existing gifts updated.
 	GiftsUpdated int

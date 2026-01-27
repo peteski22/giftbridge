@@ -97,13 +97,14 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 		return nil, fmt.Errorf("getting last sync time: %w", err)
 	}
 
-	// Use default if no previous sync.
-	if since.IsZero() {
+	// Determine if this is an initial sync (no previous sync recorded).
+	isInitialSync := since.IsZero()
+	if isInitialSync {
 		since = defaultSyncStart()
-		s.logger.Info("no previous sync found, using default start time", "since", since)
+		s.logger.Info("initial sync detected, checking Blackbaud for existing gifts", "since", since)
 	}
 
-	s.logger.Info("starting sync", "since", since)
+	s.logger.Info("starting sync", "since", since, "initial_sync", isInitialSync)
 
 	// Fetch donations from FundraiseUp.
 	donations, err := s.fundraiseup.Donations(ctx, since)
@@ -115,7 +116,7 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 
 	// Process each donation.
 	for _, donation := range donations {
-		donationResult := s.processDonation(ctx, donation)
+		donationResult := s.processDonation(ctx, donation, isInitialSync)
 		result.DonationsProcessed++
 
 		if donationResult.Error != nil {
@@ -135,12 +136,16 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 		if donationResult.GiftUpdated {
 			result.GiftsUpdated++
 		}
+		if donationResult.GiftSkippedExisting {
+			result.GiftsSkippedExisting++
+		}
 
 		s.logger.Info("processed donation",
 			"donation_id", donation.ID,
 			"gift_id", donationResult.GiftID,
 			"created", donationResult.GiftCreated,
-			"updated", donationResult.GiftUpdated)
+			"updated", donationResult.GiftUpdated,
+			"skipped_existing", donationResult.GiftSkippedExisting)
 	}
 
 	// Update last sync time.
@@ -152,6 +157,7 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 		"donations_processed", result.DonationsProcessed,
 		"gifts_created", result.GiftsCreated,
 		"gifts_updated", result.GiftsUpdated,
+		"gifts_skipped_existing", result.GiftsSkippedExisting,
 		"constituents_created", result.ConstituentsCreated,
 		"errors", len(result.Errors))
 
@@ -269,6 +275,32 @@ func (s *Service) mapDonationToGift(donation fundraiseup.Donation, recCtx recurr
 	return gift, nil
 }
 
+// findExistingGiftByLookupID searches Blackbaud for an existing gift with the given lookup ID.
+func (s *Service) findExistingGiftByLookupID(
+	ctx context.Context,
+	constituentID string,
+	lookupID string,
+) (*blackbaud.Gift, error) {
+	if lookupID == "" {
+		return nil, nil
+	}
+
+	// Query all gifts for this constituent.
+	gifts, err := s.blackbaud.ListGiftsByConstituent(ctx, constituentID, nil)
+	if err != nil {
+		return nil, fmt.Errorf("listing constituent gifts: %w", err)
+	}
+
+	// Find a gift with matching lookup_id.
+	for i := range gifts {
+		if gifts[i].LookupID == lookupID {
+			return &gifts[i], nil
+		}
+	}
+
+	return nil, nil
+}
+
 func (s *Service) trackDonation(
 	ctx context.Context,
 	donation fundraiseup.Donation,
@@ -296,10 +328,14 @@ func (s *Service) trackDonation(
 	})
 }
 
-func (s *Service) processDonation(ctx context.Context, donation fundraiseup.Donation) DonationResult {
+func (s *Service) processDonation(
+	ctx context.Context,
+	donation fundraiseup.Donation,
+	isInitialSync bool,
+) DonationResult {
 	result := DonationResult{DonationID: donation.ID}
 
-	// Check if already synced.
+	// Check if already synced in our tracker.
 	existingGiftID, err := s.donationTracker.GiftID(ctx, donation.ID)
 	if err != nil {
 		result.Error = fmt.Errorf("checking donation tracker: %w", err)
@@ -338,6 +374,30 @@ func (s *Service) processDonation(ctx context.Context, donation fundraiseup.Dona
 		result.GiftID = existingGiftID
 		result.GiftUpdated = true
 	} else {
+		// During initial sync, check Blackbaud for existing gifts to avoid duplicates.
+		if isInitialSync {
+			existingGift, err := s.findExistingGiftByLookupID(ctx, constituentID, gift.LookupID)
+			if err != nil {
+				result.Error = fmt.Errorf("checking for existing gift: %w", err)
+				return result
+			}
+			if existingGift != nil {
+				s.logger.Warn("gift already exists in Blackbaud, skipping creation",
+					"donation_id", donation.ID,
+					"lookup_id", gift.LookupID,
+					"existing_gift_id", existingGift.ID)
+				result.GiftID = existingGift.ID
+				result.GiftSkippedExisting = true
+
+				// Track the existing gift so we don't check again.
+				if err := s.trackDonation(ctx, donation, existingGift.ID, recCtx); err != nil {
+					result.Error = fmt.Errorf("tracking existing gift: %w", err)
+					return result
+				}
+				return result
+			}
+		}
+
 		// Create new gift.
 		giftID, err := s.blackbaud.CreateGift(ctx, gift)
 		if err != nil {
