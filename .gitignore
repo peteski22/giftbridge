@@ -2,4 +2,7 @@
 .local/
 .aws-sam/
 bootstrap
+giftbridge
+giftbridge-*
+giftbridge.exe
 infrastructure/.env

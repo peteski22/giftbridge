@@ -30,12 +30,6 @@ const (
 	// EnvBlackbaudTokenURL is the OAuth token endpoint URL.
 	EnvBlackbaudTokenURL = "BLACKBAUD_TOKEN_URL"
 
-	// EnvDynamoDBIndexName is the DynamoDB Global Secondary Index for recurring donation queries.
-	EnvDynamoDBIndexName = "DYNAMODB_INDEX_NAME"
-
-	// EnvDynamoDBTableName is the DynamoDB table for tracking donations.
-	EnvDynamoDBTableName = "DYNAMODB_TABLE_NAME"
-
 	// EnvFundraiseUpAPIKey is the API key for FundraiseUp.
 	EnvFundraiseUpAPIKey = "FUNDRAISEUP_API_KEY"
 
@@ -82,15 +76,6 @@ type Blackbaud struct {
 	TokenURL string
 }
 
-// DynamoDB holds AWS DynamoDB configuration.
-type DynamoDB struct {
-	// IndexName is the Global Secondary Index name for querying donations by recurring ID.
-	IndexName string
-
-	// TableName is the name of the DynamoDB table for tracking donations.
-	TableName string
-}
-
 // FundraiseUp holds FundraiseUp API configuration.
 type FundraiseUp struct {
 	// APIKey is the API key for authentication.
@@ -126,9 +111,6 @@ type Settings struct {
 	// Blackbaud contains Blackbaud SKY API settings.
 	Blackbaud Blackbaud
 
-	// DynamoDB contains AWS DynamoDB settings.
-	DynamoDB DynamoDB
-
 	// FundraiseUp contains FundraiseUp API settings.
 	FundraiseUp FundraiseUp
 
@@ -157,9 +139,6 @@ func (s *Settings) validate() error {
 	if s.Blackbaud.SubscriptionKey == "" {
 		errs = append(errs, requiredError(EnvBlackbaudSubscriptionKey))
 	}
-	if s.DynamoDB.TableName == "" {
-		errs = append(errs, requiredError(EnvDynamoDBTableName))
-	}
 	if s.FundraiseUp.APIKey == "" {
 		errs = append(errs, requiredError(EnvFundraiseUpAPIKey))
 	}
@@ -184,10 +163,6 @@ func Load() (*Settings, error) {
 			RefreshTokenSecretARN: strings.TrimSpace(os.Getenv(EnvBlackbaudRefreshTokenSecretARN)),
 			SubscriptionKey:       strings.TrimSpace(os.Getenv(EnvBlackbaudSubscriptionKey)),
 			TokenURL:              envOrDefault(EnvBlackbaudTokenURL, "https://oauth2.sky.blackbaud.com/token"),
-		},
-		DynamoDB: DynamoDB{
-			IndexName: envOrDefault(EnvDynamoDBIndexName, "RecurringIdIndex"),
-			TableName: strings.TrimSpace(os.Getenv(EnvDynamoDBTableName)),
 		},
 		FundraiseUp: FundraiseUp{
 			APIKey:  strings.TrimSpace(os.Getenv(EnvFundraiseUpAPIKey)),
