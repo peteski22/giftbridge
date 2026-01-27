@@ -26,7 +26,7 @@ func TestAddress_ToDomainType(t *testing.T) {
 				Country:    "UK",
 				Line1:      "123 Main Street",
 				PostalCode: "SW1A 1AA",
-				State:      "England",
+				Region:     "England",
 			},
 			want: &blackbaud.Address{
 				AddressLines: "123 Main Street",
@@ -45,7 +45,7 @@ func TestAddress_ToDomainType(t *testing.T) {
 				Line1:      "456 Park Ave",
 				Line2:      "Suite 100",
 				PostalCode: "10022",
-				State:      "NY",
+				Region:     "NY",
 			},
 			want: &blackbaud.Address{
 				AddressLines: "456 Park Ave\nSuite 100",
@@ -78,17 +78,19 @@ func TestDonation_ToDomainType(t *testing.T) {
 	tests := map[string]struct {
 		donation *Donation
 		want     *blackbaud.Gift
+		wantErr  bool
 	}{
 		"nil donation": {
 			donation: nil,
 			want:     nil,
+			wantErr:  false,
 		},
 		"basic donation": {
 			donation: &Donation{
-				Amount:        5000,
-				CreatedAt:     createdAt,
-				ID:            "don_123",
-				PaymentMethod: PaymentMethodCard,
+				Amount:    "50.00",
+				CreatedAt: createdAt,
+				ID:        "don_123",
+				Payment:   &Payment{Method: PaymentMethodCard},
 			},
 			want: &blackbaud.Gift{
 				Amount:        &blackbaud.GiftAmount{Value: 50.00},
@@ -96,14 +98,15 @@ func TestDonation_ToDomainType(t *testing.T) {
 				ExternalID:    "don_123",
 				PaymentMethod: "Credit card",
 			},
+			wantErr: false,
 		},
 		"donation with comment": {
 			donation: &Donation{
-				Amount:        10000,
-				Comment:       "In memory of John",
-				CreatedAt:     createdAt,
-				ID:            "don_789",
-				PaymentMethod: PaymentMethodPayPal,
+				Amount:    "100.00",
+				Comment:   "In memory of John",
+				CreatedAt: createdAt,
+				ID:        "don_789",
+				Payment:   &Payment{Method: PaymentMethodPayPal},
 			},
 			want: &blackbaud.Gift{
 				Amount:        &blackbaud.GiftAmount{Value: 100.00},
@@ -112,10 +115,11 @@ func TestDonation_ToDomainType(t *testing.T) {
 				PaymentMethod: "PayPal",
 				Reference:     "In memory of John",
 			},
+			wantErr: false,
 		},
 		"donation without payment method": {
 			donation: &Donation{
-				Amount:    2500,
+				Amount:    "25.00",
 				CreatedAt: createdAt,
 				ID:        "don_minimal",
 			},
@@ -124,6 +128,16 @@ func TestDonation_ToDomainType(t *testing.T) {
 				Date:       "2024-01-15",
 				ExternalID: "don_minimal",
 			},
+			wantErr: false,
+		},
+		"invalid amount returns error": {
+			donation: &Donation{
+				Amount:    "invalid",
+				CreatedAt: createdAt,
+				ID:        "don_bad",
+			},
+			want:    nil,
+			wantErr: true,
 		},
 	}
 
@@ -131,9 +145,15 @@ func TestDonation_ToDomainType(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tc.donation.ToDomainType()
+			got, err := tc.donation.ToDomainType()
 
-			require.Equal(t, tc.want, got)
+			if tc.wantErr {
+				require.Error(t, err)
+				require.Nil(t, got)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.want, got)
+			}
 		})
 	}
 }
@@ -279,7 +299,7 @@ func TestSupporter_ToDomainType(t *testing.T) {
 					Line1:      "456 Park Ave",
 					Line2:      "Apt 5",
 					PostalCode: "10022",
-					State:      "NY",
+					Region:     "NY",
 				},
 				Email:     "john@example.com",
 				FirstName: "John",

@@ -23,22 +23,23 @@ type Client struct {
 	httpClient *http.Client
 }
 
-// Donations fetches donations created or updated after the given time.
+// Donations fetches donations created after the given time.
 func (c *Client) Donations(ctx context.Context, since time.Time) ([]Donation, error) {
 	var allDonations []Donation
-	var cursor string
+	var startingAfter string
 
 	for {
-		donations, nextCursor, err := c.fetchDonationsPage(ctx, since, cursor)
+		donations, hasMore, err := c.fetchDonationsPage(ctx, since, startingAfter)
 		if err != nil {
 			return nil, err
 		}
 		allDonations = append(allDonations, donations...)
 
-		if nextCursor == "" {
+		if !hasMore || len(donations) == 0 {
 			break
 		}
-		cursor = nextCursor
+		// Use the last donation ID as the cursor for the next page.
+		startingAfter = donations[len(donations)-1].ID
 	}
 
 	return allDonations, nil
@@ -76,19 +77,23 @@ func (c *Client) Supporter(ctx context.Context, supporterID string) (*Supporter,
 }
 
 // fetchDonationsPage fetches a single page of donations from the API.
-func (c *Client) fetchDonationsPage(ctx context.Context, since time.Time, cursor string) ([]Donation, string, error) {
+func (c *Client) fetchDonationsPage(
+	ctx context.Context,
+	since time.Time,
+	startingAfter string,
+) ([]Donation, bool, error) {
 	params := url.Values{}
-	params.Set("createdAfter", since.UTC().Format(time.RFC3339))
-	params.Set("limit", "50")
-	if cursor != "" {
-		params.Set("cursor", cursor)
+	params.Set("created[gte]", since.UTC().Format(time.RFC3339))
+	params.Set("limit", "100")
+	if startingAfter != "" {
+		params.Set("starting_after", startingAfter)
 	}
 
 	reqURL := fmt.Sprintf("%s/donations?%s", c.baseURL, params.Encode())
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
-		return nil, "", fmt.Errorf("creating request: %w", err)
+		return nil, false, fmt.Errorf("creating request: %w", err)
 	}
 
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
@@ -96,21 +101,21 @@ func (c *Client) fetchDonationsPage(ctx context.Context, since time.Time, cursor
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, "", fmt.Errorf("executing request: %w", err)
+		return nil, false, fmt.Errorf("executing request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, "", fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+		return nil, false, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var result donationsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, "", fmt.Errorf("decoding response: %w", err)
+		return nil, false, fmt.Errorf("decoding response: %w", err)
 	}
 
-	return result.Data, result.NextCursor, nil
+	return result.Data, result.HasMore, nil
 }
 
 // NewClient creates a new FundraiseUp API client.

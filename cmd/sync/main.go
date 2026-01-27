@@ -50,7 +50,7 @@ func handler(ctx context.Context) error {
 	ssmClient := ssm.NewFromConfig(awsCfg)
 
 	// Create storage implementations.
-	donationTracker, err := storage.NewDonationTracker(dynamoClient, cfg.DynamoDB.TableName)
+	donationTracker, err := storage.NewDonationTracker(dynamoClient, cfg.DynamoDB.TableName, cfg.DynamoDB.IndexName)
 	if err != nil {
 		return fmt.Errorf("creating donation tracker: %w", err)
 	}

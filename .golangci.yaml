@@ -20,6 +20,9 @@ linters:
           # SKY API and OAuth use snake_case for JSON fields.
           - pkg: internal/blackbaud
             ignore: true
+          # FundraiseUp API uses snake_case for JSON fields.
+          - pkg: internal/fundraiseup
+            ignore: true
 
 formatters:
   enable:

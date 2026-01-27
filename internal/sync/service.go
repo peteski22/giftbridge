@@ -10,6 +10,7 @@ import (
 	"github.com/peteski22/giftbridge/internal/blackbaud"
 	"github.com/peteski22/giftbridge/internal/config"
 	"github.com/peteski22/giftbridge/internal/fundraiseup"
+	"github.com/peteski22/giftbridge/internal/storage"
 )
 
 // Config holds the required configuration for creating a Service.
@@ -72,6 +73,18 @@ type Service struct {
 
 	// stateStore manages sync state persistence.
 	stateStore StateStore
+}
+
+// recurringContext contains context for processing a recurring donation.
+type recurringContext struct {
+	// firstGiftID is the Blackbaud gift ID of the first payment in this series.
+	firstGiftID string
+
+	// isFirstInSeries indicates if this is the first payment in the series.
+	isFirstInSeries bool
+
+	// sequenceNumber is the position of this payment in the series (1-indexed).
+	sequenceNumber int
 }
 
 // Run executes a full sync cycle.
@@ -174,6 +187,101 @@ func (s *Service) findOrCreateConstituent(ctx context.Context, donation fundrais
 	return constituentID, true, nil
 }
 
+func (s *Service) getRecurringContext(ctx context.Context, donation fundraiseup.Donation) (recurringContext, error) {
+	if !donation.IsRecurring() || donation.RecurringID() == "" {
+		return recurringContext{}, nil
+	}
+
+	// Use FundraiseUp's installment number for sequence if available.
+	// This avoids GSI eventual consistency issues when processing multiple
+	// installments from the same series in a single sync run.
+	seqNum := donation.InstallmentNumber()
+	if seqNum < 1 {
+		seqNum = 1
+	}
+
+	isFirst := seqNum == 1
+
+	// For subsequent payments, query for the first gift ID to link to.
+	if !isFirst {
+		existing, err := s.donationTracker.DonationsByRecurringID(ctx, donation.RecurringID())
+		if err != nil {
+			return recurringContext{}, fmt.Errorf("querying recurring donations: %w", err)
+		}
+
+		if len(existing) > 0 {
+			return recurringContext{
+				firstGiftID:     existing[0].FirstGiftID,
+				isFirstInSeries: false,
+				sequenceNumber:  seqNum,
+			}, nil
+		}
+		// No existing records found - treat as first even if installment > 1.
+		// This handles cases where we missed earlier installments.
+		isFirst = true
+	}
+
+	return recurringContext{
+		isFirstInSeries: isFirst,
+		sequenceNumber:  seqNum,
+	}, nil
+}
+
+func (s *Service) mapDonationToGift(donation fundraiseup.Donation, recCtx recurringContext) (*blackbaud.Gift, error) {
+	gift, err := donation.ToDomainType()
+	if err != nil {
+		return nil, fmt.Errorf("converting donation to gift: %w", err)
+	}
+
+	gift.Type = s.giftDefaults.Type
+	gift.GiftSplits = []blackbaud.GiftSplit{{
+		Amount:     gift.Amount,
+		FundID:     s.giftDefaults.FundID,
+		CampaignID: s.giftDefaults.CampaignID,
+		AppealID:   s.giftDefaults.AppealID,
+	}}
+
+	// Apply recurring gift attributes.
+	if donation.IsRecurring() && donation.RecurringID() != "" {
+		gift.LookupID = donation.RecurringID()
+		gift.Subtype = "Recurring"
+
+		// Link to first gift if this is a subsequent payment.
+		if !recCtx.isFirstInSeries && recCtx.firstGiftID != "" {
+			gift.LinkedGifts = []string{recCtx.firstGiftID}
+		}
+	}
+
+	return gift, nil
+}
+
+func (s *Service) trackDonation(
+	ctx context.Context,
+	donation fundraiseup.Donation,
+	giftID string,
+	recCtx recurringContext,
+) error {
+	// Use simple tracking for one-off donations.
+	if !donation.IsRecurring() || donation.RecurringID() == "" {
+		return s.donationTracker.Track(ctx, donation.ID, giftID)
+	}
+
+	// Determine first gift ID for recurring series.
+	firstGiftID := recCtx.firstGiftID
+	if recCtx.isFirstInSeries {
+		firstGiftID = giftID
+	}
+
+	return s.donationTracker.TrackRecurring(ctx, storage.RecurringInfo{
+		CreatedAt:      donation.CreatedAt,
+		DonationID:     donation.ID,
+		FirstGiftID:    firstGiftID,
+		GiftID:         giftID,
+		RecurringID:    donation.RecurringID(),
+		SequenceNumber: recCtx.sequenceNumber,
+	})
+}
+
 func (s *Service) processDonation(ctx context.Context, donation fundraiseup.Donation) DonationResult {
 	result := DonationResult{DonationID: donation.ID}
 
@@ -192,16 +300,20 @@ func (s *Service) processDonation(ctx context.Context, donation fundraiseup.Dona
 	}
 	result.ConstituentCreated = created
 
-	// Map donation to gift and apply configuration.
-	gift := donation.ToDomainType()
+	// Get recurring context for recurring donations.
+	recCtx, err := s.getRecurringContext(ctx, donation)
+	if err != nil {
+		result.Error = fmt.Errorf("getting recurring context: %w", err)
+		return result
+	}
+
+	// Map donation to gift with recurring attributes.
+	gift, err := s.mapDonationToGift(donation, recCtx)
+	if err != nil {
+		result.Error = fmt.Errorf("mapping donation to gift: %w", err)
+		return result
+	}
 	gift.ConstituentID = constituentID
-	gift.Type = s.giftDefaults.Type
-	gift.GiftSplits = []blackbaud.GiftSplit{{
-		Amount:     gift.Amount,
-		FundID:     s.giftDefaults.FundID,
-		CampaignID: s.giftDefaults.CampaignID,
-		AppealID:   s.giftDefaults.AppealID,
-	}}
 
 	if existingGiftID != "" {
 		// Update existing gift.
@@ -220,12 +332,14 @@ func (s *Service) processDonation(ctx context.Context, donation fundraiseup.Dona
 		}
 		result.GiftID = giftID
 		result.GiftCreated = true
+	}
 
-		// Track the mapping.
-		if err := s.donationTracker.Track(ctx, donation.ID, giftID); err != nil {
-			result.Error = fmt.Errorf("tracking donation: %w", err)
-			return result
-		}
+	// Track the mapping (upserts, so safe for both create and update paths).
+	// This ensures recurring metadata is stored even for previously-synced
+	// donations that were tracked before recurring support was added.
+	if err := s.trackDonation(ctx, donation, result.GiftID, recCtx); err != nil {
+		result.Error = fmt.Errorf("tracking donation: %w", err)
+		return result
 	}
 
 	return result

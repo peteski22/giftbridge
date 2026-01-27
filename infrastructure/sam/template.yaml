@@ -83,9 +83,22 @@ Resources:
       AttributeDefinitions:
         - AttributeName: donation_id
           AttributeType: S
+        - AttributeName: recurring_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
       KeySchema:
         - AttributeName: donation_id
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: RecurringIdIndex
+          KeySchema:
+            - AttributeName: recurring_id
+              KeyType: HASH
+            - AttributeName: created_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
       Tags:
         - Key: Application
           Value: giftbridge

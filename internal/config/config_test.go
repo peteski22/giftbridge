@@ -38,6 +38,7 @@ func TestLoad(t *testing.T) {
 					TokenURL:              "https://oauth2.sky.blackbaud.com/token",
 				},
 				DynamoDB: DynamoDB{
+					IndexName: "RecurringIdIndex",
 					TableName: "donations-table",
 				},
 				FundraiseUp: FundraiseUp{
@@ -83,6 +84,7 @@ func TestLoad(t *testing.T) {
 					TokenURL:              "https://custom.token.com",
 				},
 				DynamoDB: DynamoDB{
+					IndexName: "RecurringIdIndex",
 					TableName: "donations-table",
 				},
 				FundraiseUp: FundraiseUp{
