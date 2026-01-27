@@ -1,13 +1,10 @@
 // Package blackbaud provides a client for the Blackbaud SKY API.
 package blackbaud
 
-import (
-	"encoding/json"
-	"fmt"
+const (
+	// GiftSubtypeRecurring indicates a recurring gift.
+	GiftSubtypeRecurring GiftSubtype = "Recurring"
 )
-
-// GiftType represents the type of gift in Raiser's Edge NXT.
-type GiftType string
 
 const (
 	// GiftTypeDonation is a one-off donation.
@@ -23,10 +20,8 @@ const (
 // GiftSubtype represents the subtype of gift in Raiser's Edge NXT.
 type GiftSubtype string
 
-const (
-	// GiftSubtypeRecurring indicates a recurring gift.
-	GiftSubtypeRecurring GiftSubtype = "Recurring"
-)
+// GiftType represents the type of gift in Raiser's Edge NXT.
+type GiftType string
 
 // Address represents a constituent's address.
 type Address struct {
@@ -176,16 +171,6 @@ type GiftOrigin struct {
 
 	// Name is the source system name.
 	Name string `json:"name"`
-}
-
-// String returns the JSON representation of the origin.
-func (o GiftOrigin) String() string {
-	b, err := json.Marshal(o)
-	if err != nil {
-		// Fallback to a safe default if marshalling fails.
-		return fmt.Sprintf(`{"donation_id":%q,"name":%q}`, o.DonationID, o.Name)
-	}
-	return string(b)
 }
 
 // GiftSplit represents how a gift is split across funds.

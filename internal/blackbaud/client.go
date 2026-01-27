@@ -210,3 +210,13 @@ func (c *Config) validate() error {
 	}
 	return errors.Join(errs...)
 }
+
+// String returns the JSON representation of the origin.
+func (o GiftOrigin) String() string {
+	b, err := json.Marshal(o)
+	if err != nil {
+		// Fallback to a safe default if marshalling fails.
+		return fmt.Sprintf(`{"donation_id":%q,"name":%q}`, o.DonationID, o.Name)
+	}
+	return string(b)
+}
