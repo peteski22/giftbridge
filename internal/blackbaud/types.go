@@ -249,6 +249,9 @@ type giftListResponse struct {
 	// Count is the total number of results.
 	Count int `json:"count"`
 
+	// NextLink is the URL for the next page of results.
+	NextLink string `json:"next_link"`
+
 	// Value contains the gifts.
 	Value []Gift `json:"value"`
 }

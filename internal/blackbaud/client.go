@@ -66,6 +66,7 @@ func (c *Client) SearchConstituents(ctx context.Context, email string) ([]Consti
 }
 
 // ListGiftsByConstituent returns all gifts for a constituent, optionally filtered by gift type.
+// Handles pagination automatically to return all matching gifts.
 func (c *Client) ListGiftsByConstituent(
 	ctx context.Context,
 	constituentID string,
@@ -77,14 +78,20 @@ func (c *Client) ListGiftsByConstituent(
 		params.Add("gift_type", string(gt))
 	}
 
+	var allGifts []Gift
 	reqURL := fmt.Sprintf("%s/gift/v1/gifts?%s", c.baseURL, params.Encode())
 
-	var result giftListResponse
-	if err := c.doRequest(ctx, http.MethodGet, reqURL, nil, &result); err != nil {
-		return nil, fmt.Errorf("listing gifts: %w", err)
+	for reqURL != "" {
+		var result giftListResponse
+		if err := c.doRequest(ctx, http.MethodGet, reqURL, nil, &result); err != nil {
+			return nil, fmt.Errorf("listing gifts: %w", err)
+		}
+
+		allGifts = append(allGifts, result.Value...)
+		reqURL = result.NextLink
 	}
 
-	return result.Value, nil
+	return allGifts, nil
 }
 
 // UpdateGift updates an existing gift by ID.
