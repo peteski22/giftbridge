@@ -1,7 +1,10 @@
 // Package blackbaud provides a client for the Blackbaud SKY API.
 package blackbaud
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // GiftType represents the type of gift in Raiser's Edge NXT.
 type GiftType string
@@ -36,7 +39,11 @@ type GiftOrigin struct {
 
 // String returns the JSON representation of the origin.
 func (o GiftOrigin) String() string {
-	b, _ := json.Marshal(o)
+	b, err := json.Marshal(o)
+	if err != nil {
+		// Fallback to a safe default if marshalling fails.
+		return fmt.Sprintf(`{"donation_id":%q,"name":%q}`, o.DonationID, o.Name)
+	}
 	return string(b)
 }
 
