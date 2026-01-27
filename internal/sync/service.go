@@ -65,25 +65,20 @@ type Service struct {
 	// fundraiseup is the FundraiseUp API client.
 	fundraiseup *fundraiseup.Client
 
-	// logger is the structured logger.
-	logger *slog.Logger
+	// giftCache caches constituent gifts during initial sync to avoid repeated API calls.
+	giftCache map[string][]blackbaud.Gift
 
 	// giftDefaults contains default values for gifts.
 	giftDefaults config.GiftDefaults
 
+	// isInitialSync indicates if this is the first sync run.
+	isInitialSync bool
+
+	// logger is the structured logger.
+	logger *slog.Logger
+
 	// stateStore manages sync state persistence.
 	stateStore StateStore
-}
-
-// giftCache caches constituent gifts during a sync run to avoid repeated API calls.
-type giftCache struct {
-	// gifts maps constituent ID to their gifts.
-	gifts map[string][]blackbaud.Gift
-}
-
-// newGiftCache creates a new gift cache.
-func newGiftCache() *giftCache {
-	return &giftCache{gifts: make(map[string][]blackbaud.Gift)}
 }
 
 // recurringContext contains context for processing a recurring donation.
@@ -109,13 +104,14 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 	}
 
 	// Determine if this is an initial sync (no previous sync recorded).
-	isInitialSync := since.IsZero()
-	if isInitialSync {
+	s.isInitialSync = since.IsZero()
+	if s.isInitialSync {
 		since = defaultSyncStart()
+		s.giftCache = make(map[string][]blackbaud.Gift)
 		s.logger.Info("initial sync detected, checking Blackbaud for existing gifts", "since", since)
 	}
 
-	s.logger.Info("starting sync", "since", since, "initial_sync", isInitialSync)
+	s.logger.Info("starting sync", "since", since, "initial_sync", s.isInitialSync)
 
 	// Fetch donations from FundraiseUp.
 	donations, err := s.fundraiseup.Donations(ctx, since)
@@ -125,15 +121,9 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 
 	s.logger.Info("fetched donations", "count", len(donations))
 
-	// Create gift cache for initial sync to avoid repeated API calls.
-	var cache *giftCache
-	if isInitialSync {
-		cache = newGiftCache()
-	}
-
 	// Process each donation.
 	for _, donation := range donations {
-		donationResult := s.processDonation(ctx, donation, isInitialSync, cache)
+		donationResult := s.processDonation(ctx, donation)
 		result.DonationsProcessed++
 
 		if donationResult.Error != nil {
@@ -293,20 +283,19 @@ func (s *Service) mapDonationToGift(donation fundraiseup.Donation, recCtx recurr
 }
 
 // findExistingGiftByLookupID searches Blackbaud for an existing gift with the given lookup ID.
-// Uses the cache to avoid repeated API calls for the same constituent during a sync run.
+// Uses s.giftCache to avoid repeated API calls for the same constituent during initial sync.
 func (s *Service) findExistingGiftByLookupID(
 	ctx context.Context,
 	constituentID string,
 	lookupID string,
 	giftType blackbaud.GiftType,
-	cache *giftCache,
 ) (*blackbaud.Gift, error) {
 	if lookupID == "" {
 		return nil, nil
 	}
 
 	// Check cache first.
-	gifts, cached := cache.gifts[constituentID]
+	gifts, cached := s.giftCache[constituentID]
 	if !cached {
 		// Query gifts for this constituent, filtered by type for efficiency.
 		var err error
@@ -314,7 +303,7 @@ func (s *Service) findExistingGiftByLookupID(
 		if err != nil {
 			return nil, fmt.Errorf("listing constituent gifts: %w", err)
 		}
-		cache.gifts[constituentID] = gifts
+		s.giftCache[constituentID] = gifts
 	}
 
 	// Find a gift with matching lookup_id.
@@ -357,8 +346,6 @@ func (s *Service) trackDonation(
 func (s *Service) processDonation(
 	ctx context.Context,
 	donation fundraiseup.Donation,
-	isInitialSync bool,
-	cache *giftCache,
 ) DonationResult {
 	result := DonationResult{DonationID: donation.ID}
 
@@ -402,8 +389,8 @@ func (s *Service) processDonation(
 		result.GiftUpdated = true
 	} else {
 		// During initial sync, check Blackbaud for existing gifts to avoid duplicates.
-		if isInitialSync {
-			existingGift, err := s.findExistingGiftByLookupID(ctx, constituentID, gift.LookupID, gift.Type, cache)
+		if s.isInitialSync {
+			existingGift, err := s.findExistingGiftByLookupID(ctx, constituentID, gift.LookupID, gift.Type)
 			if err != nil {
 				result.Error = fmt.Errorf("checking for existing gift: %w", err)
 				return result
