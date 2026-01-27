@@ -74,8 +74,8 @@ type recurringContext struct {
 	sequenceNumber  int
 }
 
-// NewService creates a new sync orchestration service.
-func NewService(cfg Config) (*Service, error) {
+// New creates a new sync orchestration service.
+func New(cfg Config) (*Service, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}

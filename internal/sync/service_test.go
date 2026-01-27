@@ -86,7 +86,7 @@ func (m *mockDonationTracker) TrackRecurring(_ context.Context, info storage.Rec
 	return nil
 }
 
-func TestNewService(t *testing.T) {
+func TestNew(t *testing.T) {
 	t.Parallel()
 
 	validGiftDefaults := config.GiftDefaults{FundID: "fund-123", Type: "Donation"}
@@ -175,7 +175,7 @@ func TestNewService(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			svc, err := NewService(tc.config)
+			svc, err := New(tc.config)
 
 			if tc.wantErr {
 				require.Error(t, err)
