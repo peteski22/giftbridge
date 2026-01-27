@@ -75,6 +75,17 @@ type Service struct {
 	stateStore StateStore
 }
 
+// giftCache caches constituent gifts during a sync run to avoid repeated API calls.
+type giftCache struct {
+	// gifts maps constituent ID to their gifts.
+	gifts map[string][]blackbaud.Gift
+}
+
+// newGiftCache creates a new gift cache.
+func newGiftCache() *giftCache {
+	return &giftCache{gifts: make(map[string][]blackbaud.Gift)}
+}
+
 // recurringContext contains context for processing a recurring donation.
 type recurringContext struct {
 	// firstGiftID is the Blackbaud gift ID of the first payment in this series.
@@ -114,9 +125,15 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 
 	s.logger.Info("fetched donations", "count", len(donations))
 
+	// Create gift cache for initial sync to avoid repeated API calls.
+	var cache *giftCache
+	if isInitialSync {
+		cache = newGiftCache()
+	}
+
 	// Process each donation.
 	for _, donation := range donations {
-		donationResult := s.processDonation(ctx, donation, isInitialSync)
+		donationResult := s.processDonation(ctx, donation, isInitialSync, cache)
 		result.DonationsProcessed++
 
 		if donationResult.Error != nil {
@@ -276,19 +293,28 @@ func (s *Service) mapDonationToGift(donation fundraiseup.Donation, recCtx recurr
 }
 
 // findExistingGiftByLookupID searches Blackbaud for an existing gift with the given lookup ID.
+// Uses the cache to avoid repeated API calls for the same constituent during a sync run.
 func (s *Service) findExistingGiftByLookupID(
 	ctx context.Context,
 	constituentID string,
 	lookupID string,
+	giftType blackbaud.GiftType,
+	cache *giftCache,
 ) (*blackbaud.Gift, error) {
 	if lookupID == "" {
 		return nil, nil
 	}
 
-	// Query all gifts for this constituent.
-	gifts, err := s.blackbaud.ListGiftsByConstituent(ctx, constituentID, nil)
-	if err != nil {
-		return nil, fmt.Errorf("listing constituent gifts: %w", err)
+	// Check cache first.
+	gifts, cached := cache.gifts[constituentID]
+	if !cached {
+		// Query gifts for this constituent, filtered by type for efficiency.
+		var err error
+		gifts, err = s.blackbaud.ListGiftsByConstituent(ctx, constituentID, []blackbaud.GiftType{giftType})
+		if err != nil {
+			return nil, fmt.Errorf("listing constituent gifts: %w", err)
+		}
+		cache.gifts[constituentID] = gifts
 	}
 
 	// Find a gift with matching lookup_id.
@@ -332,6 +358,7 @@ func (s *Service) processDonation(
 	ctx context.Context,
 	donation fundraiseup.Donation,
 	isInitialSync bool,
+	cache *giftCache,
 ) DonationResult {
 	result := DonationResult{DonationID: donation.ID}
 
@@ -376,7 +403,7 @@ func (s *Service) processDonation(
 	} else {
 		// During initial sync, check Blackbaud for existing gifts to avoid duplicates.
 		if isInitialSync {
-			existingGift, err := s.findExistingGiftByLookupID(ctx, constituentID, gift.LookupID)
+			existingGift, err := s.findExistingGiftByLookupID(ctx, constituentID, gift.LookupID, gift.Type, cache)
 			if err != nil {
 				result.Error = fmt.Errorf("checking for existing gift: %w", err)
 				return result
