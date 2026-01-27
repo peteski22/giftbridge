@@ -95,7 +95,6 @@ func TestDonation_ToDomainType(t *testing.T) {
 			want: &blackbaud.Gift{
 				Amount:        &blackbaud.GiftAmount{Value: 50.00},
 				Date:          "2024-01-15",
-				ExternalID:    "don_123",
 				PaymentMethod: "Credit card",
 			},
 			wantErr: false,
@@ -111,7 +110,6 @@ func TestDonation_ToDomainType(t *testing.T) {
 			want: &blackbaud.Gift{
 				Amount:        &blackbaud.GiftAmount{Value: 100.00},
 				Date:          "2024-01-15",
-				ExternalID:    "don_789",
 				PaymentMethod: "PayPal",
 				Reference:     "In memory of John",
 			},
@@ -124,9 +122,8 @@ func TestDonation_ToDomainType(t *testing.T) {
 				ID:        "don_minimal",
 			},
 			want: &blackbaud.Gift{
-				Amount:     &blackbaud.GiftAmount{Value: 25.00},
-				Date:       "2024-01-15",
-				ExternalID: "don_minimal",
+				Amount: &blackbaud.GiftAmount{Value: 25.00},
+				Date:   "2024-01-15",
 			},
 			wantErr: false,
 		},

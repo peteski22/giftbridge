@@ -24,16 +24,17 @@ type Config struct {
 	// FundraiseUp is the FundraiseUp API client.
 	FundraiseUp *fundraiseup.Client
 
-	// Logger is the structured logger for the service.
-	Logger *slog.Logger
-
 	// GiftDefaults contains default values for gifts in Raiser's Edge.
 	GiftDefaults config.GiftDefaults
+
+	// Logger is the structured logger for the service.
+	Logger *slog.Logger
 
 	// StateStore manages sync state persistence.
 	StateStore StateStore
 }
 
+// validate checks that all required Config fields are set.
 func (c *Config) validate() error {
 	var errs []error
 	if c.Blackbaud == nil {
@@ -56,56 +57,62 @@ func (c *Config) validate() error {
 
 // Service orchestrates the sync between FundraiseUp and Blackbaud.
 type Service struct {
-	// blackbaud is the Blackbaud API client.
-	blackbaud *blackbaud.Client
-
-	// donationTracker tracks donation to gift mappings.
+	blackbaud       *blackbaud.Client
 	donationTracker DonationTracker
-
-	// fundraiseup is the FundraiseUp API client.
-	fundraiseup *fundraiseup.Client
-
-	// logger is the structured logger.
-	logger *slog.Logger
-
-	// giftDefaults contains default values for gifts.
-	giftDefaults config.GiftDefaults
-
-	// stateStore manages sync state persistence.
-	stateStore StateStore
+	fundraiseup     *fundraiseup.Client
+	giftCache       map[string][]blackbaud.Gift
+	giftDefaults    config.GiftDefaults
+	isInitialSync   bool
+	logger          *slog.Logger
+	stateStore      StateStore
 }
 
 // recurringContext contains context for processing a recurring donation.
 type recurringContext struct {
-	// firstGiftID is the Blackbaud gift ID of the first payment in this series.
-	firstGiftID string
-
-	// isFirstInSeries indicates if this is the first payment in the series.
+	firstGiftID     string
 	isFirstInSeries bool
+	sequenceNumber  int
+}
 
-	// sequenceNumber is the position of this payment in the series (1-indexed).
-	sequenceNumber int
+// New creates a new sync orchestration service.
+func New(cfg Config) (*Service, error) {
+	if err := cfg.validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+
+	return &Service{
+		blackbaud:       cfg.Blackbaud,
+		donationTracker: cfg.DonationTracker,
+		fundraiseup:     cfg.FundraiseUp,
+		giftDefaults:    cfg.GiftDefaults,
+		logger:          logger,
+		stateStore:      cfg.StateStore,
+	}, nil
 }
 
 // Run executes a full sync cycle.
 func (s *Service) Run(ctx context.Context) (*Result, error) {
 	result := &Result{}
 
-	// Get last sync time.
 	since, err := s.stateStore.LastSyncTime(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting last sync time: %w", err)
 	}
 
-	// Use default if no previous sync.
-	if since.IsZero() {
+	s.isInitialSync = since.IsZero()
+	if s.isInitialSync {
 		since = defaultSyncStart()
-		s.logger.Info("no previous sync found, using default start time", "since", since)
+		s.giftCache = make(map[string][]blackbaud.Gift)
+		s.logger.Info("initial sync detected, checking Blackbaud for existing gifts", "since", since)
 	}
 
-	s.logger.Info("starting sync", "since", since)
+	s.logger.Info("starting sync", "since", since, "initial_sync", s.isInitialSync)
 
-	// Fetch donations from FundraiseUp.
 	donations, err := s.fundraiseup.Donations(ctx, since)
 	if err != nil {
 		return nil, fmt.Errorf("fetching donations: %w", err)
@@ -113,7 +120,6 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 
 	s.logger.Info("fetched donations", "count", len(donations))
 
-	// Process each donation.
 	for _, donation := range donations {
 		donationResult := s.processDonation(ctx, donation)
 		result.DonationsProcessed++
@@ -135,15 +141,18 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 		if donationResult.GiftUpdated {
 			result.GiftsUpdated++
 		}
+		if donationResult.GiftSkippedExisting {
+			result.GiftsSkippedExisting++
+		}
 
 		s.logger.Info("processed donation",
 			"donation_id", donation.ID,
 			"gift_id", donationResult.GiftID,
 			"created", donationResult.GiftCreated,
-			"updated", donationResult.GiftUpdated)
+			"updated", donationResult.GiftUpdated,
+			"skipped_existing", donationResult.GiftSkippedExisting)
 	}
 
-	// Update last sync time.
 	if err := s.stateStore.SetLastSyncTime(ctx, time.Now()); err != nil {
 		return result, fmt.Errorf("updating last sync time: %w", err)
 	}
@@ -152,20 +161,52 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 		"donations_processed", result.DonationsProcessed,
 		"gifts_created", result.GiftsCreated,
 		"gifts_updated", result.GiftsUpdated,
+		"gifts_skipped_existing", result.GiftsSkippedExisting,
 		"constituents_created", result.ConstituentsCreated,
 		"errors", len(result.Errors))
 
 	return result, nil
 }
 
-func (s *Service) findOrCreateConstituent(ctx context.Context, donation fundraiseup.Donation) (string, bool, error) {
+func (s *Service) findExistingGiftByLookupID(
+	ctx context.Context,
+	constituentID string,
+	lookupID string,
+	giftType blackbaud.GiftType,
+) (*blackbaud.Gift, error) {
+	if lookupID == "" {
+		return nil, nil
+	}
+
+	gifts, cached := s.giftCache[constituentID]
+	if !cached {
+		var err error
+		gifts, err = s.blackbaud.ListGiftsByConstituent(ctx, constituentID, []blackbaud.GiftType{giftType})
+		if err != nil {
+			return nil, fmt.Errorf("listing constituent gifts: %w", err)
+		}
+		s.giftCache[constituentID] = gifts
+	}
+
+	for i := range gifts {
+		if gifts[i].LookupID == lookupID {
+			return &gifts[i], nil
+		}
+	}
+
+	return nil, nil
+}
+
+func (s *Service) findOrCreateConstituent(
+	ctx context.Context,
+	donation fundraiseup.Donation,
+) (string, bool, error) {
 	if donation.Supporter == nil {
 		return "", false, errors.New("donation has no supporter")
 	}
 
 	supporter := donation.Supporter
 
-	// Search by email.
 	if supporter.Email != "" {
 		constituents, err := s.blackbaud.SearchConstituents(ctx, supporter.Email)
 		if err != nil {
@@ -177,7 +218,6 @@ func (s *Service) findOrCreateConstituent(ctx context.Context, donation fundrais
 		}
 	}
 
-	// Create new constituent.
 	constituent := supporter.ToDomainType()
 	constituentID, err := s.blackbaud.CreateConstituent(ctx, constituent)
 	if err != nil {
@@ -187,14 +227,14 @@ func (s *Service) findOrCreateConstituent(ctx context.Context, donation fundrais
 	return constituentID, true, nil
 }
 
-func (s *Service) getRecurringContext(ctx context.Context, donation fundraiseup.Donation) (recurringContext, error) {
+func (s *Service) getRecurringContext(
+	ctx context.Context,
+	donation fundraiseup.Donation,
+) (recurringContext, error) {
 	if !donation.IsRecurring() || donation.RecurringID() == "" {
 		return recurringContext{}, nil
 	}
 
-	// Use FundraiseUp's installment number for sequence if available.
-	// This avoids GSI eventual consistency issues when processing multiple
-	// installments from the same series in a single sync run.
 	seqNum := donation.InstallmentNumber()
 	if seqNum < 1 {
 		seqNum = 1
@@ -202,7 +242,6 @@ func (s *Service) getRecurringContext(ctx context.Context, donation fundraiseup.
 
 	isFirst := seqNum == 1
 
-	// For subsequent payments, query for the first gift ID to link to.
 	if !isFirst {
 		existing, err := s.donationTracker.DonationsByRecurringID(ctx, donation.RecurringID())
 		if err != nil {
@@ -216,8 +255,6 @@ func (s *Service) getRecurringContext(ctx context.Context, donation fundraiseup.
 				sequenceNumber:  seqNum,
 			}, nil
 		}
-		// No existing records found - treat as first even if installment > 1.
-		// This handles cases where we missed earlier installments.
 		isFirst = true
 	}
 
@@ -227,13 +264,17 @@ func (s *Service) getRecurringContext(ctx context.Context, donation fundraiseup.
 	}, nil
 }
 
-func (s *Service) mapDonationToGift(donation fundraiseup.Donation, recCtx recurringContext) (*blackbaud.Gift, error) {
+func (s *Service) mapDonationToGift(
+	donation fundraiseup.Donation,
+	recCtx recurringContext,
+) (*blackbaud.Gift, error) {
 	gift, err := donation.ToDomainType()
 	if err != nil {
 		return nil, fmt.Errorf("converting donation to gift: %w", err)
 	}
 
-	gift.Type = s.giftDefaults.Type
+	gift.BatchPrefix = "FundraiseUp"
+	gift.IsManual = true
 	gift.GiftSplits = []blackbaud.GiftSplit{{
 		Amount:     gift.Amount,
 		FundID:     s.giftDefaults.FundID,
@@ -241,18 +282,107 @@ func (s *Service) mapDonationToGift(donation fundraiseup.Donation, recCtx recurr
 		AppealID:   s.giftDefaults.AppealID,
 	}}
 
-	// Apply recurring gift attributes.
 	if donation.IsRecurring() && donation.RecurringID() != "" {
 		gift.LookupID = donation.RecurringID()
-		gift.Subtype = "Recurring"
+		gift.Subtype = blackbaud.GiftSubtypeRecurring
+		gift.Origin = blackbaud.GiftOrigin{
+			DonationID: donation.ID,
+			Name:       "FundraiseUp",
+		}.String()
 
-		// Link to first gift if this is a subsequent payment.
-		if !recCtx.isFirstInSeries && recCtx.firstGiftID != "" {
-			gift.LinkedGifts = []string{recCtx.firstGiftID}
+		if recCtx.isFirstInSeries {
+			gift.Type = blackbaud.GiftTypeRecurringGift
+		} else {
+			gift.Type = blackbaud.GiftTypeRecurringGiftPayment
+			if recCtx.firstGiftID != "" {
+				gift.LinkedGifts = []string{recCtx.firstGiftID}
+			}
 		}
+	} else {
+		gift.Type = blackbaud.GiftType(s.giftDefaults.Type)
+		gift.LookupID = donation.ID
 	}
 
 	return gift, nil
+}
+
+func (s *Service) processDonation(
+	ctx context.Context,
+	donation fundraiseup.Donation,
+) DonationResult {
+	result := DonationResult{DonationID: donation.ID}
+
+	existingGiftID, err := s.donationTracker.GiftID(ctx, donation.ID)
+	if err != nil {
+		result.Error = fmt.Errorf("checking donation tracker: %w", err)
+		return result
+	}
+
+	constituentID, created, err := s.findOrCreateConstituent(ctx, donation)
+	if err != nil {
+		result.Error = fmt.Errorf("finding/creating constituent: %w", err)
+		return result
+	}
+	result.ConstituentCreated = created
+
+	recCtx, err := s.getRecurringContext(ctx, donation)
+	if err != nil {
+		result.Error = fmt.Errorf("getting recurring context: %w", err)
+		return result
+	}
+
+	gift, err := s.mapDonationToGift(donation, recCtx)
+	if err != nil {
+		result.Error = fmt.Errorf("mapping donation to gift: %w", err)
+		return result
+	}
+	gift.ConstituentID = constituentID
+
+	if existingGiftID != "" {
+		if err := s.blackbaud.UpdateGift(ctx, existingGiftID, gift); err != nil {
+			result.Error = fmt.Errorf("updating gift: %w", err)
+			return result
+		}
+		result.GiftID = existingGiftID
+		result.GiftUpdated = true
+	} else {
+		if s.isInitialSync {
+			existingGift, err := s.findExistingGiftByLookupID(ctx, constituentID, gift.LookupID, gift.Type)
+			if err != nil {
+				result.Error = fmt.Errorf("checking for existing gift: %w", err)
+				return result
+			}
+			if existingGift != nil {
+				s.logger.Warn("gift already exists in Blackbaud, skipping creation",
+					"donation_id", donation.ID,
+					"lookup_id", gift.LookupID,
+					"existing_gift_id", existingGift.ID)
+				result.GiftID = existingGift.ID
+				result.GiftSkippedExisting = true
+
+				if err := s.trackDonation(ctx, donation, existingGift.ID, recCtx); err != nil {
+					result.Error = fmt.Errorf("tracking existing gift: %w", err)
+					return result
+				}
+				return result
+			}
+		}
+
+		giftID, err := s.blackbaud.CreateGift(ctx, gift)
+		if err != nil {
+			result.Error = fmt.Errorf("creating gift: %w", err)
+			return result
+		}
+		result.GiftID = giftID
+		result.GiftCreated = true
+	}
+
+	if err := s.trackDonation(ctx, donation, result.GiftID, recCtx); err != nil {
+		result.Error = fmt.Errorf("tracking donation: %w", err)
+		return result
+	}
+
+	return result
 }
 
 func (s *Service) trackDonation(
@@ -261,12 +391,10 @@ func (s *Service) trackDonation(
 	giftID string,
 	recCtx recurringContext,
 ) error {
-	// Use simple tracking for one-off donations.
 	if !donation.IsRecurring() || donation.RecurringID() == "" {
 		return s.donationTracker.Track(ctx, donation.ID, giftID)
 	}
 
-	// Determine first gift ID for recurring series.
 	firstGiftID := recCtx.firstGiftID
 	if recCtx.isFirstInSeries {
 		firstGiftID = giftID
@@ -280,90 +408,6 @@ func (s *Service) trackDonation(
 		RecurringID:    donation.RecurringID(),
 		SequenceNumber: recCtx.sequenceNumber,
 	})
-}
-
-func (s *Service) processDonation(ctx context.Context, donation fundraiseup.Donation) DonationResult {
-	result := DonationResult{DonationID: donation.ID}
-
-	// Check if already synced.
-	existingGiftID, err := s.donationTracker.GiftID(ctx, donation.ID)
-	if err != nil {
-		result.Error = fmt.Errorf("checking donation tracker: %w", err)
-		return result
-	}
-
-	// Find or create constituent.
-	constituentID, created, err := s.findOrCreateConstituent(ctx, donation)
-	if err != nil {
-		result.Error = fmt.Errorf("finding/creating constituent: %w", err)
-		return result
-	}
-	result.ConstituentCreated = created
-
-	// Get recurring context for recurring donations.
-	recCtx, err := s.getRecurringContext(ctx, donation)
-	if err != nil {
-		result.Error = fmt.Errorf("getting recurring context: %w", err)
-		return result
-	}
-
-	// Map donation to gift with recurring attributes.
-	gift, err := s.mapDonationToGift(donation, recCtx)
-	if err != nil {
-		result.Error = fmt.Errorf("mapping donation to gift: %w", err)
-		return result
-	}
-	gift.ConstituentID = constituentID
-
-	if existingGiftID != "" {
-		// Update existing gift.
-		if err := s.blackbaud.UpdateGift(ctx, existingGiftID, gift); err != nil {
-			result.Error = fmt.Errorf("updating gift: %w", err)
-			return result
-		}
-		result.GiftID = existingGiftID
-		result.GiftUpdated = true
-	} else {
-		// Create new gift.
-		giftID, err := s.blackbaud.CreateGift(ctx, gift)
-		if err != nil {
-			result.Error = fmt.Errorf("creating gift: %w", err)
-			return result
-		}
-		result.GiftID = giftID
-		result.GiftCreated = true
-	}
-
-	// Track the mapping (upserts, so safe for both create and update paths).
-	// This ensures recurring metadata is stored even for previously-synced
-	// donations that were tracked before recurring support was added.
-	if err := s.trackDonation(ctx, donation, result.GiftID, recCtx); err != nil {
-		result.Error = fmt.Errorf("tracking donation: %w", err)
-		return result
-	}
-
-	return result
-}
-
-// NewService creates a new sync orchestration service.
-func NewService(cfg Config) (*Service, error) {
-	if err := cfg.validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
-	}
-
-	logger := cfg.Logger
-	if logger == nil {
-		logger = slog.Default()
-	}
-
-	return &Service{
-		blackbaud:       cfg.Blackbaud,
-		donationTracker: cfg.DonationTracker,
-		fundraiseup:     cfg.FundraiseUp,
-		giftDefaults:    cfg.GiftDefaults,
-		logger:          logger,
-		stateStore:      cfg.StateStore,
-	}, nil
 }
 
 func defaultSyncStart() time.Time {

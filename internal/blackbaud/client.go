@@ -26,6 +26,49 @@ type Client struct {
 	tokenManager *tokenManager
 }
 
+// Config holds the required configuration for creating a Client.
+type Config struct {
+	// ClientID is the OAuth client identifier.
+	ClientID string
+
+	// ClientSecret is the OAuth client secret.
+	ClientSecret string
+
+	// SubscriptionKey is the SKY API subscription key.
+	SubscriptionKey string
+
+	// TokenStore provides access to OAuth tokens.
+	TokenStore TokenStore
+}
+
+// NewClient creates a new Blackbaud SKY API client.
+func NewClient(cfg Config, opts ...Option) (*Client, error) {
+	if err := cfg.validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
+	o := defaultOptions()
+	for _, opt := range opts {
+		if err := opt(o); err != nil {
+			return nil, fmt.Errorf("applying option: %w", err)
+		}
+	}
+
+	httpClient := o.httpClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: o.timeout}
+	}
+
+	tm := newTokenManager(cfg.ClientID, cfg.ClientSecret, cfg.TokenStore, httpClient)
+
+	return &Client{
+		baseURL:      o.baseURL,
+		config:       cfg,
+		httpClient:   httpClient,
+		tokenManager: tm,
+	}, nil
+}
+
 // CreateConstituent creates a new constituent and returns the new constituent ID.
 func (c *Client) CreateConstituent(ctx context.Context, constituent *Constituent) (string, error) {
 	reqURL := fmt.Sprintf("%s/constituent/v1/constituents", c.baseURL)
@@ -48,6 +91,35 @@ func (c *Client) CreateGift(ctx context.Context, gift *Gift) (string, error) {
 	}
 
 	return result.ID, nil
+}
+
+// ListGiftsByConstituent returns all gifts for a constituent, optionally filtered by gift type.
+// Handles pagination automatically to return all matching gifts.
+func (c *Client) ListGiftsByConstituent(
+	ctx context.Context,
+	constituentID string,
+	giftTypes []GiftType,
+) ([]Gift, error) {
+	params := url.Values{}
+	params.Set("constituent_id", constituentID)
+	for _, gt := range giftTypes {
+		params.Add("gift_type", string(gt))
+	}
+
+	var allGifts []Gift
+	reqURL := fmt.Sprintf("%s/gift/v1/gifts?%s", c.baseURL, params.Encode())
+
+	for reqURL != "" {
+		var result giftListResponse
+		if err := c.doRequest(ctx, http.MethodGet, reqURL, nil, &result); err != nil {
+			return nil, fmt.Errorf("listing gifts: %w", err)
+		}
+
+		allGifts = append(allGifts, result.Value...)
+		reqURL = result.NextLink
+	}
+
+	return allGifts, nil
 }
 
 // SearchConstituents searches for constituents matching the given email address.
@@ -121,21 +193,6 @@ func (c *Client) doRequest(ctx context.Context, method string, reqURL string, bo
 	return nil
 }
 
-// Config holds the required configuration for creating a Client.
-type Config struct {
-	// ClientID is the OAuth client identifier.
-	ClientID string
-
-	// ClientSecret is the OAuth client secret.
-	ClientSecret string
-
-	// SubscriptionKey is the SKY API subscription key.
-	SubscriptionKey string
-
-	// TokenStore provides access to OAuth tokens.
-	TokenStore TokenStore
-}
-
 // validate checks that all required Config fields are set.
 func (c *Config) validate() error {
 	var errs []error
@@ -154,30 +211,12 @@ func (c *Config) validate() error {
 	return errors.Join(errs...)
 }
 
-// NewClient creates a new Blackbaud SKY API client.
-func NewClient(cfg Config, opts ...Option) (*Client, error) {
-	if err := cfg.validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
+// String returns the JSON representation of the origin.
+func (o GiftOrigin) String() string {
+	b, err := json.Marshal(o)
+	if err != nil {
+		// Fallback to a safe default if marshalling fails.
+		return fmt.Sprintf(`{"donation_id":%q,"name":%q}`, o.DonationID, o.Name)
 	}
-
-	o := defaultOptions()
-	for _, opt := range opts {
-		if err := opt(o); err != nil {
-			return nil, fmt.Errorf("applying option: %w", err)
-		}
-	}
-
-	httpClient := o.httpClient
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: o.timeout}
-	}
-
-	tm := newTokenManager(cfg.ClientID, cfg.ClientSecret, cfg.TokenStore, httpClient)
-
-	return &Client{
-		baseURL:      o.baseURL,
-		config:       cfg,
-		httpClient:   httpClient,
-		tokenManager: tm,
-	}, nil
+	return string(b)
 }

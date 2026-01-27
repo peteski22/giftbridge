@@ -88,7 +88,7 @@ func handler(ctx context.Context) error {
 	}
 
 	// Create and run sync service.
-	syncService, err := sync.NewService(sync.Config{
+	syncService, err := sync.New(sync.Config{
 		Blackbaud:       blackbaudClient,
 		DonationTracker: donationTracker,
 		FundraiseUp:     fundraiseupClient,

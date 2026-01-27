@@ -44,9 +44,8 @@ func (d *Donation) ToDomainType() (*blackbaud.Gift, error) {
 	}
 
 	gift := &blackbaud.Gift{
-		Amount:     &blackbaud.GiftAmount{Value: amount},
-		Date:       d.CreatedAt.Format("2006-01-02"),
-		ExternalID: d.ID,
+		Amount: &blackbaud.GiftAmount{Value: amount},
+		Date:   d.CreatedAt.Format("2006-01-02"),
 	}
 
 	if d.Payment != nil && d.Payment.Method != "" {
