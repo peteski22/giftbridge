@@ -25,6 +25,10 @@ func newDryRunClient(client BlackbaudClient, logger *slog.Logger) *dryRunClient 
 }
 
 // CreateConstituent logs what would be created and returns a fake ID.
+// Note: We intentionally log constituent details (name, email) in dry-run mode because:
+// 1. This output goes only to the user's local terminal, not to any logging service.
+// 2. The user needs to verify the correct data would be synced from their own FundraiseUp account.
+// 3. Dry-run mode is for local development/testing, not production use.
 func (d *dryRunClient) CreateConstituent(ctx context.Context, constituent *blackbaud.Constituent) (string, error) {
 	fakeID := d.nextFakeID("constituent")
 

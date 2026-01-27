@@ -24,7 +24,7 @@ import (
 
 func main() {
 	// Check for subcommands first.
-	if len(os.Args) > 1 {
+	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "-") {
 		switch os.Args[1] {
 		case "auth":
 			if err := runBlackbaudAuth(); err != nil {
@@ -38,6 +38,9 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		default:
+			fmt.Fprintln(os.Stderr, formatError(fmt.Errorf("unknown subcommand: %s", os.Args[1])))
+			os.Exit(1)
 		}
 	}
 
@@ -59,19 +62,19 @@ Flags:
 When run without flags or commands, starts as an AWS Lambda handler.
 
 Examples:
-  # Set up local configuration
+  # Set up local configuration (~/.giftbridge/config.yaml)
   giftbridge init
 
-  # Authorize with Blackbaud
+  # Authorize with Blackbaud (saves token to ~/.giftbridge/token)
   giftbridge auth
 
-  # Preview what would be synced (no AWS required)
+  # Preview what would be synced locally (uses file-based config and token)
   giftbridge --dry-run --since=2024-01-01T00:00:00Z
 
-  # Run a real sync (requires AWS infrastructure)
+  # Run a real sync locally (uses file-based config and token)
   giftbridge --since=2024-01-01T00:00:00Z
 
-  # Run as Lambda handler (default, no flags)
+  # Run as Lambda handler (requires AWS infrastructure)
   giftbridge
 `)
 	}

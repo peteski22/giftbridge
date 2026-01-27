@@ -1,4 +1,4 @@
-.PHONY: lint test build build-local build-darwin build-windows build-linux
+.PHONY: lint test build build-local build-darwin build-darwin-amd64 build-windows build-linux
 
 lint:
 	golangci-lint run --fix -v

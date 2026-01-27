@@ -18,22 +18,26 @@ func TestBuildBlackbaudAuthURL(t *testing.T) {
 	tests := map[string]struct {
 		clientID       string
 		redirectURI    string
+		state          string
 		wantContains   []string
 		wantNotContain []string
 	}{
 		"standard values": {
 			clientID:    "my-client-id",
 			redirectURI: "http://localhost:8080/callback",
+			state:       "test-state-123",
 			wantContains: []string{
 				"https://app.blackbaud.com/oauth/authorize",
 				"client_id=my-client-id",
 				"redirect_uri=http",
 				"response_type=code",
+				"state=test-state-123",
 			},
 		},
 		"special characters in client ID": {
 			clientID:    "client+id/special",
 			redirectURI: "http://localhost:8080/callback",
+			state:       "state-abc",
 			wantContains: []string{
 				"client_id=client",
 			},
@@ -41,10 +45,12 @@ func TestBuildBlackbaudAuthURL(t *testing.T) {
 		"empty values": {
 			clientID:    "",
 			redirectURI: "",
+			state:       "",
 			wantContains: []string{
 				"client_id=",
 				"redirect_uri=",
 				"response_type=code",
+				"state=",
 			},
 		},
 	}
@@ -53,7 +59,7 @@ func TestBuildBlackbaudAuthURL(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			result := buildBlackbaudAuthURL(tc.clientID, tc.redirectURI)
+			result := buildBlackbaudAuthURL(tc.clientID, tc.redirectURI, tc.state)
 
 			for _, want := range tc.wantContains {
 				require.Contains(t, result, want)
@@ -68,7 +74,7 @@ func TestBuildBlackbaudAuthURL(t *testing.T) {
 func TestBuildBlackbaudAuthURLParseable(t *testing.T) {
 	t.Parallel()
 
-	result := buildBlackbaudAuthURL("test-client", "http://localhost:8080/callback")
+	result := buildBlackbaudAuthURL("test-client", "http://localhost:8080/callback", "test-state-xyz")
 
 	parsed, err := url.Parse(result)
 	require.NoError(t, err)
@@ -80,6 +86,26 @@ func TestBuildBlackbaudAuthURLParseable(t *testing.T) {
 	require.Equal(t, "test-client", query.Get("client_id"))
 	require.Equal(t, "http://localhost:8080/callback", query.Get("redirect_uri"))
 	require.Equal(t, "code", query.Get("response_type"))
+	require.Equal(t, "test-state-xyz", query.Get("state"))
+}
+
+func TestGenerateOAuthState(t *testing.T) {
+	t.Parallel()
+
+	state1, err := generateOAuthState()
+	require.NoError(t, err)
+	require.NotEmpty(t, state1)
+
+	state2, err := generateOAuthState()
+	require.NoError(t, err)
+	require.NotEmpty(t, state2)
+
+	// States should be different (cryptographically random).
+	require.NotEqual(t, state1, state2)
+
+	// State should be base64 URL encoded (no + or /).
+	require.NotContains(t, state1, "+")
+	require.NotContains(t, state1, "/")
 }
 
 func TestBuildBlackbaudTokenRequest(t *testing.T) {
@@ -212,19 +238,40 @@ func TestExchangeBlackbaudCode(t *testing.T) {
 func TestWriteCallbackResponse(t *testing.T) {
 	t.Parallel()
 
-	w := httptest.NewRecorder()
+	t.Run("normal content", func(t *testing.T) {
+		t.Parallel()
 
-	writeCallbackResponse(w, "Test Title", "Test message here.")
+		w := httptest.NewRecorder()
 
-	resp := w.Result()
-	defer func() { _ = resp.Body.Close() }()
+		writeCallbackResponse(w, "Test Title", "Test message here.")
 
-	require.Equal(t, "text/html", resp.Header.Get("Content-Type"))
+		resp := w.Result()
+		defer func() { _ = resp.Body.Close() }()
 
-	body := w.Body.String()
-	require.Contains(t, body, "<h1>Test Title</h1>")
-	require.Contains(t, body, "<p>Test message here.</p>")
-	require.Contains(t, body, "You can close this window.")
+		require.Equal(t, "text/html", resp.Header.Get("Content-Type"))
+
+		body := w.Body.String()
+		require.Contains(t, body, "<h1>Test Title</h1>")
+		require.Contains(t, body, "<p>Test message here.</p>")
+		require.Contains(t, body, "You can close this window.")
+	})
+
+	t.Run("escapes HTML in title and message", func(t *testing.T) {
+		t.Parallel()
+
+		w := httptest.NewRecorder()
+
+		writeCallbackResponse(w, "<script>alert('xss')</script>", "Test <b>bold</b> & \"quoted\"")
+
+		body := w.Body.String()
+		// Should be escaped, not raw HTML.
+		require.Contains(t, body, "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;")
+		require.Contains(t, body, "&lt;b&gt;bold&lt;/b&gt;")
+		require.Contains(t, body, "&amp;")
+		require.Contains(t, body, "&#34;quoted&#34;")
+		// Should NOT contain raw script tags.
+		require.NotContains(t, body, "<script>")
+	})
 }
 
 func TestBrowserCommand(t *testing.T) {
@@ -251,13 +298,14 @@ func TestBrowserCommand(t *testing.T) {
 func TestStartOAuthCallbackServer(t *testing.T) {
 	// Cannot use t.Parallel() because subtests share the same port 8080.
 
-	t.Run("successful authorization callback", func(t *testing.T) {
+	t.Run("successful authorization callback with state", func(t *testing.T) {
 		// Cannot use t.Parallel() - port 8080 conflict.
 
 		codeChan := make(chan string, 1)
 		errChan := make(chan error, 1)
+		expectedState := "test-state-123"
 
-		server, err := startOAuthCallbackServer(codeChan, errChan)
+		server, err := startOAuthCallbackServer(codeChan, errChan, expectedState)
 		require.NoError(t, err)
 		defer func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -265,8 +313,8 @@ func TestStartOAuthCallbackServer(t *testing.T) {
 			_ = server.Shutdown(ctx)
 		}()
 
-		// Make a request with a valid code.
-		resp, err := http.Get("http://localhost:8080/callback?code=test-auth-code")
+		// Make a request with a valid code and matching state.
+		resp, err := http.Get("http://localhost:8080/callback?code=test-auth-code&state=test-state-123")
 		require.NoError(t, err)
 		defer func() { _ = resp.Body.Close() }()
 
@@ -282,13 +330,45 @@ func TestStartOAuthCallbackServer(t *testing.T) {
 		}
 	})
 
+	t.Run("state mismatch rejected", func(t *testing.T) {
+		// Cannot use t.Parallel() - port 8080 conflict.
+
+		codeChan := make(chan string, 1)
+		errChan := make(chan error, 1)
+		expectedState := "expected-state"
+
+		server, err := startOAuthCallbackServer(codeChan, errChan, expectedState)
+		require.NoError(t, err)
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			_ = server.Shutdown(ctx)
+		}()
+
+		// Make a request with wrong state.
+		resp, err := http.Get("http://localhost:8080/callback?code=test-auth-code&state=wrong-state")
+		require.NoError(t, err)
+		defer func() { _ = resp.Body.Close() }()
+
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		select {
+		case <-codeChan:
+			t.Fatal("unexpected code received")
+		case err := <-errChan:
+			require.Contains(t, err.Error(), "state mismatch")
+		case <-time.After(time.Second):
+			t.Fatal("timeout waiting for error")
+		}
+	})
+
 	t.Run("error callback", func(t *testing.T) {
 		// Cannot use t.Parallel() - port 8080 conflict.
 
 		codeChan := make(chan string, 1)
 		errChan := make(chan error, 1)
 
-		server, err := startOAuthCallbackServer(codeChan, errChan)
+		server, err := startOAuthCallbackServer(codeChan, errChan, "")
 		require.NoError(t, err)
 		defer func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -322,7 +402,7 @@ func TestStartOAuthCallbackServer(t *testing.T) {
 		codeChan := make(chan string, 1)
 		errChan := make(chan error, 1)
 
-		server, err := startOAuthCallbackServer(codeChan, errChan)
+		server, err := startOAuthCallbackServer(codeChan, errChan, "")
 		require.NoError(t, err)
 		defer func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)

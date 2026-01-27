@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"net"
 	"net/http"
 	"net/url"
@@ -18,12 +21,13 @@ import (
 )
 
 const (
-	authTimeout  = 5 * time.Minute
-	authURL      = "https://app.blackbaud.com/oauth/authorize"
-	callbackPath = "/callback"
-	callbackPort = "8080"
-	httpTimeout  = 30 * time.Second
-	tokenURL     = "https://oauth2.sky.blackbaud.com/token"
+	authTimeout     = 5 * time.Minute
+	authURL         = "https://app.blackbaud.com/oauth/authorize"
+	callbackPath    = "/callback"
+	callbackPort    = "8080"
+	httpTimeout     = 30 * time.Second
+	stateByteLength = 32
+	tokenURL        = "https://oauth2.sky.blackbaud.com/token"
 )
 
 // oauthErrorResponse represents an OAuth error from the Blackbaud token endpoint.
@@ -54,13 +58,23 @@ type tokenResponse struct {
 }
 
 // buildBlackbaudAuthURL constructs the Blackbaud SKY API OAuth authorization URL.
-func buildBlackbaudAuthURL(clientID string, redirectURI string) string {
+func buildBlackbaudAuthURL(clientID string, redirectURI string, state string) string {
 	params := url.Values{}
 	params.Set("client_id", clientID)
 	params.Set("redirect_uri", redirectURI)
 	params.Set("response_type", "code")
+	params.Set("state", state)
 
 	return authURL + "?" + params.Encode()
+}
+
+// generateOAuthState generates a cryptographically secure random state for CSRF protection.
+func generateOAuthState() (string, error) {
+	b := make([]byte, stateByteLength)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generating random bytes: %w", err)
+	}
+	return base64.URLEncoding.EncodeToString(b), nil
 }
 
 // buildBlackbaudTokenRequest constructs an HTTP request for the token exchange.
@@ -155,10 +169,16 @@ func runBlackbaudAuth() error {
 		return fmt.Errorf("getting token path: %w", err)
 	}
 
+	// Generate state for CSRF protection.
+	state, err := generateOAuthState()
+	if err != nil {
+		return fmt.Errorf("generating OAuth state: %w", err)
+	}
+
 	codeChan := make(chan string, 1)
 	errChan := make(chan error, 1)
 
-	server, err := startOAuthCallbackServer(codeChan, errChan)
+	server, err := startOAuthCallbackServer(codeChan, errChan, state)
 	if err != nil {
 		return fmt.Errorf("starting callback server: %w", err)
 	}
@@ -169,7 +189,7 @@ func runBlackbaudAuth() error {
 	}()
 
 	redirectURI := fmt.Sprintf("http://localhost:%s%s", callbackPort, callbackPath)
-	authURLWithParams := buildBlackbaudAuthURL(cfg.Blackbaud.ClientID, redirectURI)
+	authURLWithParams := buildBlackbaudAuthURL(cfg.Blackbaud.ClientID, redirectURI, state)
 
 	fmt.Println("Opening browser for Blackbaud authorization...")
 	fmt.Println()
@@ -227,19 +247,25 @@ func runBlackbaudAuth() error {
 }
 
 // writeCallbackResponse writes an HTML response for the OAuth callback page.
+// It escapes the title and message to prevent XSS attacks.
 func writeCallbackResponse(w http.ResponseWriter, title string, message string) {
 	w.Header().Set("Content-Type", "text/html")
 	_, _ = fmt.Fprintf(
 		w,
 		`<html><body><h1>%s</h1><p>%s</p><p>You can close this window.</p></body></html>`,
-		title,
-		message,
+		html.EscapeString(title),
+		html.EscapeString(message),
 	)
 }
 
 // startOAuthCallbackServer starts a local HTTP server to receive the Blackbaud OAuth callback.
 // It sends the authorization code or error through the provided channels.
-func startOAuthCallbackServer(codeChan chan<- string, errChan chan<- error) (*http.Server, error) {
+// The expectedState parameter is used for CSRF protection - the callback must include a matching state.
+func startOAuthCallbackServer(
+	codeChan chan<- string,
+	errChan chan<- error,
+	expectedState string,
+) (*http.Server, error) {
 	listener, err := net.Listen("tcp", ":"+callbackPort)
 	if err != nil {
 		return nil, fmt.Errorf("port %s is already in use", callbackPort)
@@ -250,6 +276,7 @@ func startOAuthCallbackServer(codeChan chan<- string, errChan chan<- error) (*ht
 		code := r.URL.Query().Get("code")
 		errDesc := r.URL.Query().Get("error_description")
 		errMsg := r.URL.Query().Get("error")
+		state := r.URL.Query().Get("state")
 
 		if errMsg != "" {
 			errChan <- fmt.Errorf("%s: %s", errMsg, errDesc)
@@ -260,6 +287,13 @@ func startOAuthCallbackServer(codeChan chan<- string, errChan chan<- error) (*ht
 		if code == "" {
 			errChan <- fmt.Errorf("no authorization code received")
 			writeCallbackResponse(w, "Authorization Failed", "No authorization code received.")
+			return
+		}
+
+		// Verify state parameter for CSRF protection.
+		if expectedState != "" && state != expectedState {
+			errChan <- fmt.Errorf("state mismatch: possible CSRF attack")
+			writeCallbackResponse(w, "Authorization Failed", "State validation failed.")
 			return
 		}
 
