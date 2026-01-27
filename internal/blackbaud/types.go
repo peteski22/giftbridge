@@ -28,25 +28,6 @@ const (
 	GiftSubtypeRecurring GiftSubtype = "Recurring"
 )
 
-// GiftOrigin contains source system information for a gift.
-type GiftOrigin struct {
-	// DonationID is the original donation identifier from the source system.
-	DonationID string `json:"donation_id"`
-
-	// Name is the source system name.
-	Name string `json:"name"`
-}
-
-// String returns the JSON representation of the origin.
-func (o GiftOrigin) String() string {
-	b, err := json.Marshal(o)
-	if err != nil {
-		// Fallback to a safe default if marshalling fails.
-		return fmt.Sprintf(`{"donation_id":%q,"name":%q}`, o.DonationID, o.Name)
-	}
-	return string(b)
-}
-
 // Address represents a constituent's address.
 type Address struct {
 	// AddressLines contains the street address.
@@ -188,6 +169,25 @@ type GiftAmount struct {
 	Value float64 `json:"value"`
 }
 
+// GiftOrigin contains source system information for a gift.
+type GiftOrigin struct {
+	// DonationID is the original donation identifier from the source system.
+	DonationID string `json:"donation_id"`
+
+	// Name is the source system name.
+	Name string `json:"name"`
+}
+
+// String returns the JSON representation of the origin.
+func (o GiftOrigin) String() string {
+	b, err := json.Marshal(o)
+	if err != nil {
+		// Fallback to a safe default if marshalling fails.
+		return fmt.Sprintf(`{"donation_id":%q,"name":%q}`, o.DonationID, o.Name)
+	}
+	return string(b)
+}
+
 // GiftSplit represents how a gift is split across funds.
 type GiftSplit struct {
 	// Amount is the split amount.
@@ -251,6 +251,12 @@ type constituentSearchResponse struct {
 	Value []Constituent `json:"value"`
 }
 
+// createResponse represents the response when creating a resource.
+type createResponse struct {
+	// ID is the identifier of the created resource.
+	ID string `json:"id"`
+}
+
 // giftListResponse represents the gift list API response.
 type giftListResponse struct {
 	// Count is the total number of results.
@@ -261,12 +267,6 @@ type giftListResponse struct {
 
 	// Value contains the gifts.
 	Value []Gift `json:"value"`
-}
-
-// createResponse represents the response when creating a resource.
-type createResponse struct {
-	// ID is the identifier of the created resource.
-	ID string `json:"id"`
 }
 
 // tokenResponse represents the OAuth token response from Blackbaud.

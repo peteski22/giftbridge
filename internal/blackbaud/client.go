@@ -26,6 +26,49 @@ type Client struct {
 	tokenManager *tokenManager
 }
 
+// Config holds the required configuration for creating a Client.
+type Config struct {
+	// ClientID is the OAuth client identifier.
+	ClientID string
+
+	// ClientSecret is the OAuth client secret.
+	ClientSecret string
+
+	// SubscriptionKey is the SKY API subscription key.
+	SubscriptionKey string
+
+	// TokenStore provides access to OAuth tokens.
+	TokenStore TokenStore
+}
+
+// NewClient creates a new Blackbaud SKY API client.
+func NewClient(cfg Config, opts ...Option) (*Client, error) {
+	if err := cfg.validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
+	o := defaultOptions()
+	for _, opt := range opts {
+		if err := opt(o); err != nil {
+			return nil, fmt.Errorf("applying option: %w", err)
+		}
+	}
+
+	httpClient := o.httpClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: o.timeout}
+	}
+
+	tm := newTokenManager(cfg.ClientID, cfg.ClientSecret, cfg.TokenStore, httpClient)
+
+	return &Client{
+		baseURL:      o.baseURL,
+		config:       cfg,
+		httpClient:   httpClient,
+		tokenManager: tm,
+	}, nil
+}
+
 // CreateConstituent creates a new constituent and returns the new constituent ID.
 func (c *Client) CreateConstituent(ctx context.Context, constituent *Constituent) (string, error) {
 	reqURL := fmt.Sprintf("%s/constituent/v1/constituents", c.baseURL)
@@ -48,21 +91,6 @@ func (c *Client) CreateGift(ctx context.Context, gift *Gift) (string, error) {
 	}
 
 	return result.ID, nil
-}
-
-// SearchConstituents searches for constituents matching the given email address.
-func (c *Client) SearchConstituents(ctx context.Context, email string) ([]Constituent, error) {
-	params := url.Values{}
-	params.Set("search_text", email)
-
-	reqURL := fmt.Sprintf("%s/constituent/v1/constituents/search?%s", c.baseURL, params.Encode())
-
-	var result constituentSearchResponse
-	if err := c.doRequest(ctx, http.MethodGet, reqURL, nil, &result); err != nil {
-		return nil, fmt.Errorf("searching constituents: %w", err)
-	}
-
-	return result.Value, nil
 }
 
 // ListGiftsByConstituent returns all gifts for a constituent, optionally filtered by gift type.
@@ -92,6 +120,21 @@ func (c *Client) ListGiftsByConstituent(
 	}
 
 	return allGifts, nil
+}
+
+// SearchConstituents searches for constituents matching the given email address.
+func (c *Client) SearchConstituents(ctx context.Context, email string) ([]Constituent, error) {
+	params := url.Values{}
+	params.Set("search_text", email)
+
+	reqURL := fmt.Sprintf("%s/constituent/v1/constituents/search?%s", c.baseURL, params.Encode())
+
+	var result constituentSearchResponse
+	if err := c.doRequest(ctx, http.MethodGet, reqURL, nil, &result); err != nil {
+		return nil, fmt.Errorf("searching constituents: %w", err)
+	}
+
+	return result.Value, nil
 }
 
 // UpdateGift updates an existing gift by ID.
@@ -150,21 +193,6 @@ func (c *Client) doRequest(ctx context.Context, method string, reqURL string, bo
 	return nil
 }
 
-// Config holds the required configuration for creating a Client.
-type Config struct {
-	// ClientID is the OAuth client identifier.
-	ClientID string
-
-	// ClientSecret is the OAuth client secret.
-	ClientSecret string
-
-	// SubscriptionKey is the SKY API subscription key.
-	SubscriptionKey string
-
-	// TokenStore provides access to OAuth tokens.
-	TokenStore TokenStore
-}
-
 // validate checks that all required Config fields are set.
 func (c *Config) validate() error {
 	var errs []error
@@ -181,32 +209,4 @@ func (c *Config) validate() error {
 		errs = append(errs, errors.New("token store is required"))
 	}
 	return errors.Join(errs...)
-}
-
-// NewClient creates a new Blackbaud SKY API client.
-func NewClient(cfg Config, opts ...Option) (*Client, error) {
-	if err := cfg.validate(); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
-	}
-
-	o := defaultOptions()
-	for _, opt := range opts {
-		if err := opt(o); err != nil {
-			return nil, fmt.Errorf("applying option: %w", err)
-		}
-	}
-
-	httpClient := o.httpClient
-	if httpClient == nil {
-		httpClient = &http.Client{Timeout: o.timeout}
-	}
-
-	tm := newTokenManager(cfg.ClientID, cfg.ClientSecret, cfg.TokenStore, httpClient)
-
-	return &Client{
-		baseURL:      o.baseURL,
-		config:       cfg,
-		httpClient:   httpClient,
-		tokenManager: tm,
-	}, nil
 }
