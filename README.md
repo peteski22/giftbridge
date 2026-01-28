@@ -1,8 +1,41 @@
 # GiftBridge
 
-Syncs donations from FundraiseUp to Blackbaud Raiser's Edge NXT.
+A free, open-source tool that automatically syncs donations from [FundraiseUp](https://fundraiseup.com/) to [Blackbaud Raiser's Edge NXT](https://www.blackbaud.com/products/blackbaud-raisers-edge-nxt).
 
-Runs as an AWS Lambda function on a schedule, fetching new donations and creating corresponding gifts and constituents in Raiser's Edge.
+## Why does this exist?
+
+Many charities use **FundraiseUp** for online donations (modern, donor-friendly donation forms) alongside **Raiser's Edge NXT** (Blackbaud's donor management and CRM system).
+
+FundraiseUp offered a free built-in integration that automatically pushed donations into Raiser's Edge NXT. However, [this integration is being discontinued on January 30, 2026](https://community.blackbaud.com/discussion/84271/fundraiseup-integration-gone-1-30-2026) due to changes on Blackbaud's side.
+
+**Without an integration, your options are:**
+
+1. **Manual data entry** — Staff re-type every online donation into Raiser's Edge NXT. Time-consuming and error-prone.
+2. **Paid connectors** — Tools like Omatic or ImportOmatic can sync the data, but come with ongoing subscription costs that may be prohibitive for smaller charities.
+3. **GiftBridge** — This free, open-source alternative that runs on your own AWS account for roughly $0.10/month.
+
+## Is this for me?
+
+GiftBridge is for you if:
+
+- ✅ You use **FundraiseUp** for online donations
+- ✅ You use **Raiser's Edge NXT** (Blackbaud's CRM) for donor management
+- ✅ You want donations to sync automatically without manual entry
+- ✅ You'd prefer a low-cost solution over expensive third-party connectors
+
+## What happens when someone donates?
+
+1. **Donor gives** via a FundraiseUp donation form on your website
+2. **GiftBridge runs** automatically every hour (or on your preferred schedule)
+3. **Finds or creates the donor** in Raiser's Edge NXT, matched by email address
+4. **Records the gift** with proper fund, campaign, and appeal attribution
+5. **Staff see it in Raiser's Edge NXT** — no manual entry required
+
+For recurring donations, GiftBridge links each payment back to the original recurring gift record.
+
+## How it works (technical overview)
+
+GiftBridge runs as an AWS Lambda function on a schedule, fetching new donations and creating corresponding gifts and constituents in Raiser's Edge NXT.
 
 ## Architecture
 
@@ -17,9 +50,33 @@ flowchart LR
 
 ## Prerequisites
 
-- AWS CLI configured with appropriate credentials
-- FundraiseUp API key
-- Blackbaud SKY API credentials (see [Authentication Setup](docs/authentication.md))
+### Tools
+
+- **AWS CLI** — installed and configured with credentials that can create Lambda functions, Secrets Manager secrets, and SSM parameters ([install guide](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html))
+
+### Credentials you'll need
+
+| Credential | Where to get it | Who can help |
+|------------|-----------------|--------------|
+| **FundraiseUp API key** | FundraiseUp Dashboard → Settings → API | Your FundraiseUp admin |
+| **Blackbaud client ID & secret** | Blackbaud SKY Developer Portal | Your Raiser's Edge NXT admin (see below) |
+| **Blackbaud subscription key** | Blackbaud SKY Developer Portal | Your Raiser's Edge NXT admin |
+| **Raiser's Edge NXT fund ID** | Raiser's Edge NXT → Configuration → Funds | Your Raiser's Edge NXT admin |
+| **Campaign ID** (optional) | Raiser's Edge NXT → Configuration → Campaigns | Your Raiser's Edge NXT admin |
+| **Appeal ID** (optional) | Raiser's Edge NXT → Configuration → Appeals | Your Raiser's Edge NXT admin |
+
+### People who may need to be involved
+
+- **Your Raiser's Edge NXT administrator** — They'll need to:
+  - Create a Blackbaud SKY Developer account and application (one-time setup)
+  - Grant the application access to your organisation's Raiser's Edge NXT environment
+  - Provide the fund/campaign/appeal IDs where donations should be recorded
+  - See [Authentication Setup](docs/authentication.md) for detailed steps
+
+- **Your FundraiseUp administrator** — They'll need to:
+  - Generate an API key for GiftBridge to read donations
+
+- **Someone comfortable with AWS** — To run the deployment script (or you can follow the step-by-step guide)
 
 ## Deployment
 
@@ -29,7 +86,7 @@ flowchart LR
 cp infrastructure/.env.example infrastructure/.env
 ```
 
-Edit `infrastructure/.env` with your credentials and settings. The file includes instructions for finding your Raiser's Edge IDs.
+Edit `infrastructure/.env` with your credentials and settings. The file includes instructions for finding your Raiser's Edge NXT IDs.
 
 ### 2. Deploy
 
@@ -51,18 +108,18 @@ That's it! The script will:
 ./deploy.sh --skip-download             # Build locally instead of downloading
 ```
 
-## How It Works
+## Sync Process
 
-1. **Scheduled trigger** - EventBridge invokes the Lambda on a schedule (default: hourly)
+1. **Scheduled trigger** — EventBridge invokes the Lambda on a schedule (default: hourly)
 
-2. **Fetch donations** - Retrieves donations from FundraiseUp created since the last sync
+2. **Fetch donations** — Retrieves donations from FundraiseUp created since the last sync
 
 3. **For each donation:**
-   - Find or create constituent in Raiser's Edge (matched by email)
-   - Check if gift already exists in Blackbaud (by lookup ID)
+   - Find or create constituent in Raiser's Edge NXT (matched by email)
+   - Check if gift already exists (by lookup ID)
    - Create gift with configured fund, campaign, appeal, and type (or skip if exists)
 
-4. **Update sync state** - Stores the current timestamp for the next run
+4. **Update sync state** — Stores the current timestamp for the next run
 
 ## Local Testing
 
@@ -98,9 +155,9 @@ Preview what would happen without writing to Blackbaud:
 
 This will:
 - Read real donations from FundraiseUp
-- Check for existing constituents in Blackbaud
+- Check for existing constituents in Raiser's Edge NXT
 - Log what *would* be created/updated
-- Skip all writes to Blackbaud
+- Skip all writes to Raiser's Edge NXT
 - No AWS required
 
 ### Help
@@ -147,13 +204,15 @@ GiftBridge is designed to be extremely cost-effective for small charities.
 | SSM Parameter Store | 1 parameter | $0.00 (free) |
 | **Total** | | **~$0.10/month** |
 
-No database required - Blackbaud is used as the source of truth for donation tracking.
+*Costs may vary by AWS region. Free tier eligibility applies to new accounts for 12 months.*
+
+No database required — Raiser's Edge NXT is used as the source of truth for donation tracking.
 
 ## Documentation
 
 - [Authentication Setup](docs/authentication.md) - OAuth flow, credentials, Blackbaud API setup
 - [FundraiseUp API](docs/fundraiseup-api.md) - FundraiseUp API setup, rate limits, pagination
-- [Field Mapping](docs/field-mapping.md) - How FundraiseUp fields map to Raiser's Edge
+- [Field Mapping](docs/field-mapping.md) - How FundraiseUp fields map to Raiser's Edge NXT
 
 ## License
 
