@@ -23,6 +23,37 @@ type Client struct {
 	httpClient *http.Client
 }
 
+// Donation fetches a single donation by ID.
+func (c *Client) Donation(ctx context.Context, id string) (*Donation, error) {
+	reqURL := fmt.Sprintf("%s/donations/%s", c.baseURL, id)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unexpected status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var donation Donation
+	if err := json.NewDecoder(resp.Body).Decode(&donation); err != nil {
+		return nil, fmt.Errorf("decoding response: %w", err)
+	}
+
+	return &donation, nil
+}
+
 // Donations fetches donations created after the given time.
 func (c *Client) Donations(ctx context.Context, since time.Time) ([]Donation, error) {
 	var allDonations []Donation
