@@ -56,14 +56,14 @@ flowchart LR
 
 ### Credentials you'll need
 
-| Credential | Where to get it | Who can help |
-|------------|-----------------|--------------|
-| **FundraiseUp API key** | FundraiseUp Dashboard → Settings → API | Your FundraiseUp admin |
-| **Blackbaud client ID & secret** | Blackbaud SKY Developer Portal | Your Raiser's Edge NXT admin (see below) |
-| **Blackbaud subscription key** | Blackbaud SKY Developer Portal | Your Raiser's Edge NXT admin |
-| **Raiser's Edge NXT fund ID** | Raiser's Edge NXT → Configuration → Funds | Your Raiser's Edge NXT admin |
-| **Campaign ID** (optional) | Raiser's Edge NXT → Configuration → Campaigns | Your Raiser's Edge NXT admin |
-| **Appeal ID** (optional) | Raiser's Edge NXT → Configuration → Appeals | Your Raiser's Edge NXT admin |
+| Credential                       | Where to get it                               | Who can help                             |
+|----------------------------------|-----------------------------------------------|------------------------------------------|
+| **FundraiseUp API key**          | FundraiseUp Dashboard → Settings → API        | Your FundraiseUp admin                   |
+| **Blackbaud client ID & secret** | Blackbaud SKY Developer Portal                | Your Raiser's Edge NXT admin (see below) |
+| **Blackbaud subscription key**   | Blackbaud SKY Developer Portal                | Your Raiser's Edge NXT admin             |
+| **Raiser's Edge NXT fund ID**    | Raiser's Edge NXT → Configuration → Funds     | Your Raiser's Edge NXT admin             |
+| **Campaign ID** (optional)       | Raiser's Edge NXT → Configuration → Campaigns | Your Raiser's Edge NXT admin             |
+| **Appeal ID** (optional)         | Raiser's Edge NXT → Configuration → Appeals   | Your Raiser's Edge NXT admin             |
 
 ### People who may need to be involved
 
@@ -120,6 +120,26 @@ That's it! The script will:
    - Create gift with configured fund, campaign, appeal, and type (or skip if exists)
 
 4. **Update sync state** — Stores the current timestamp for the next run
+
+### Handling Large Volumes
+
+GiftBridge processes up to **300 donations per sync run** by default. This is more than enough for most charities — even a busy campaign day rarely exceeds this.
+
+**What happens if you receive more than 300 donations between syncs?**
+
+GiftBridge will process the first 300 donations, then pick up the remaining donations on the next scheduled run. No donations are lost — they're just processed in batches.
+
+**If you regularly exceed 300 donations per hour:**
+
+Increase the sync frequency. For example:
+- Every 30 minutes → handles up to 600 donations/hour
+- Every 15 minutes → handles up to 1,200 donations/hour
+
+To change the schedule, update the `ScheduleExpression` parameter in your deployment (e.g., `rate(30 minutes)` or `rate(15 minutes)`).
+
+### What if GiftBridge is interrupted?
+
+If the Lambda function times out or is interrupted mid-sync (rare, but possible with very large batches), GiftBridge remembers where it left off. The next run will resume from the last unprocessed donation — no duplicates, no missed donations.
 
 ## Local Testing
 
@@ -195,16 +215,29 @@ make build-linux      # Linux x86_64
 
 GiftBridge is designed to be extremely cost-effective for small charities.
 
-| Service | Monthly Usage | Cost |
-|---------|---------------|------|
-| Lambda | ~720 invocations (hourly) × 5s × 128MB | $0.00 (free tier) |
-| EventBridge | 720 invocations | $0.00 (free tier) |
-| Secrets Manager | 1 secret × 720 calls | ~$0.10 |
-| CloudWatch Logs | ~50MB/month | $0.00 (free tier) |
-| SSM Parameter Store | 1 parameter | $0.00 (free) |
-| **Total** | | **~$0.10/month** |
+### With AWS Free Tier (first 12 months)
 
-*Costs may vary by AWS region. Free tier eligibility applies to new accounts for 12 months.*
+| Service             | Monthly Usage                          | Cost              |
+|---------------------|----------------------------------------|-------------------|
+| Lambda              | ~720 invocations (hourly) × 5s × 128MB | $0.00 (free tier) |
+| EventBridge         | 720 invocations                        | $0.00 (free tier) |
+| Secrets Manager     | 1 secret × 720 calls                   | ~$0.10            |
+| CloudWatch Logs     | ~50MB/month                            | $0.00 (free tier) |
+| SSM Parameter Store | 2 parameters                           | $0.00 (free)      |
+| **Total**           |                                        | **~$0.10/month**  |
+
+### After Free Tier expires
+
+| Service             | Monthly Usage                 | Cost             |
+|---------------------|-------------------------------|------------------|
+| Lambda              | ~720 invocations × 5s × 128MB | ~$0.01           |
+| EventBridge         | 720 invocations               | $0.00            |
+| Secrets Manager     | 1 secret × 720 calls          | ~$0.43           |
+| CloudWatch Logs     | ~50MB/month                   | ~$0.03           |
+| SSM Parameter Store | 2 parameters                  | $0.00 (free)     |
+| **Total**           |                               | **~$0.50/month** |
+
+*Costs may vary by AWS region.*
 
 No database required — Raiser's Edge NXT is used as the source of truth for donation tracking.
 

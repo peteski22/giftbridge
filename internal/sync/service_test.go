@@ -15,8 +15,9 @@ import (
 
 // mockStateStore implements StateStore for testing.
 type mockStateStore struct {
-	lastSync time.Time
-	setErr   error
+	lastSync   time.Time
+	pendingIDs []string
+	setErr     error
 }
 
 // LastSyncTime returns the last sync time.
@@ -30,6 +31,29 @@ func (m *mockStateStore) SetLastSyncTime(_ context.Context, t time.Time) error {
 		return m.setErr
 	}
 	m.lastSync = t
+	return nil
+}
+
+// PendingDonationIDs returns the pending donation IDs.
+func (m *mockStateStore) PendingDonationIDs(_ context.Context) ([]string, error) {
+	return m.pendingIDs, nil
+}
+
+// SetPendingDonationIDs sets the pending donation IDs.
+func (m *mockStateStore) SetPendingDonationIDs(_ context.Context, ids []string) error {
+	m.pendingIDs = ids
+	return nil
+}
+
+// RemovePendingDonationID removes an ID from the pending list.
+func (m *mockStateStore) RemovePendingDonationID(_ context.Context, id string) error {
+	remaining := make([]string, 0, len(m.pendingIDs))
+	for _, existingID := range m.pendingIDs {
+		if existingID != id {
+			remaining = append(remaining, existingID)
+		}
+	}
+	m.pendingIDs = remaining
 	return nil
 }
 

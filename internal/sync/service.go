@@ -15,6 +15,14 @@ import (
 const (
 	defaultSyncDays = -30
 	originName      = "FundraiseUp"
+
+	// defaultMaxDonationsPerRun limits donations processed per Lambda invocation.
+	// This limit exists because pending donation IDs are stored in SSM Parameter Store
+	// which has a 4KB size limit. With 8-character donation IDs stored as comma-separated
+	// values, we can safely store ~400 IDs. Setting to 300 provides headroom.
+	// If you have sustained volumes exceeding 300 donations per sync interval,
+	// consider increasing the sync frequency (e.g., every 15 minutes instead of hourly).
+	defaultMaxDonationsPerRun = 300
 )
 
 // Config holds the required configuration for creating a Service.
@@ -33,6 +41,11 @@ type Config struct {
 
 	// Logger is the structured logger for the service.
 	Logger *slog.Logger
+
+	// MaxDonationsPerRun limits donations processed per Lambda invocation.
+	// Default is 300. This limit exists because pending donation IDs are stored
+	// in SSM Parameter Store (4KB limit). Do not exceed 400.
+	MaxDonationsPerRun int
 
 	// SinceOverride optionally overrides the last sync time.
 	SinceOverride *time.Time
@@ -61,14 +74,15 @@ func (c *Config) validate() error {
 
 // Service orchestrates the sync between FundraiseUp and Blackbaud.
 type Service struct {
-	blackbaud     BlackbaudClient
-	dryRun        bool
-	fundraiseup   *fundraiseup.Client
-	giftCache     map[string][]blackbaud.Gift
-	giftDefaults  config.GiftDefaults
-	logger        *slog.Logger
-	sinceOverride *time.Time
-	stateStore    StateStore
+	blackbaud          BlackbaudClient
+	dryRun             bool
+	fundraiseup        *fundraiseup.Client
+	giftCache          map[string][]blackbaud.Gift
+	giftDefaults       config.GiftDefaults
+	logger             *slog.Logger
+	maxDonationsPerRun int
+	sinceOverride      *time.Time
+	stateStore         StateStore
 }
 
 // recurringContext contains context for processing a recurring donation.
@@ -94,14 +108,20 @@ func New(cfg Config) (*Service, error) {
 		bbClient = newDryRunClient(cfg.Blackbaud, logger)
 	}
 
+	maxDonations := cfg.MaxDonationsPerRun
+	if maxDonations <= 0 {
+		maxDonations = defaultMaxDonationsPerRun
+	}
+
 	return &Service{
-		blackbaud:     bbClient,
-		dryRun:        cfg.DryRun,
-		fundraiseup:   cfg.FundraiseUp,
-		giftDefaults:  cfg.GiftDefaults,
-		logger:        logger,
-		sinceOverride: cfg.SinceOverride,
-		stateStore:    cfg.StateStore,
+		blackbaud:          bbClient,
+		dryRun:             cfg.DryRun,
+		fundraiseup:        cfg.FundraiseUp,
+		giftDefaults:       cfg.GiftDefaults,
+		logger:             logger,
+		maxDonationsPerRun: maxDonations,
+		sinceOverride:      cfg.SinceOverride,
+		stateStore:         cfg.StateStore,
 	}, nil
 }
 
@@ -109,6 +129,26 @@ func New(cfg Config) (*Service, error) {
 func (s *Service) Run(ctx context.Context) (*Result, error) {
 	result := &Result{DryRun: s.dryRun}
 
+	// Initialize gift cache for Blackbaud lookups (sized for worst case: one constituent per donation).
+	s.giftCache = make(map[string][]blackbaud.Gift, s.maxDonationsPerRun)
+
+	// Check for pending donations from a previous interrupted run.
+	pendingIDs, err := s.stateStore.PendingDonationIDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting pending donation IDs: %w", err)
+	}
+
+	if len(pendingIDs) > 0 {
+		// Resume processing pending donations.
+		return s.runResume(ctx, result, pendingIDs)
+	}
+
+	// Fresh sync - fetch donations and process.
+	return s.runFresh(ctx, result)
+}
+
+// runFresh executes a fresh sync cycle, fetching all donations since last sync.
+func (s *Service) runFresh(ctx context.Context, result *Result) (*Result, error) {
 	since, err := s.stateStore.LastSyncTime(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting last sync time: %w", err)
@@ -125,10 +165,10 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 		s.logger.Info("initial sync detected", "since", since)
 	}
 
-	// Initialize gift cache for Blackbaud lookups.
-	s.giftCache = make(map[string][]blackbaud.Gift)
-
-	s.logger.Info("starting sync", "since", since, "dry_run", s.dryRun)
+	s.logger.Info("starting fresh sync",
+		"since", since,
+		"dry_run", s.dryRun,
+		"max_donations", s.maxDonationsPerRun)
 
 	donations, err := s.fundraiseup.Donations(ctx, since)
 	if err != nil {
@@ -137,48 +177,138 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 
 	s.logger.Info("fetched donations", "count", len(donations))
 
-	for _, donation := range donations {
-		donationResult := s.processDonation(ctx, donation)
-		result.DonationsProcessed++
-
-		if donationResult.Error != nil {
-			result.Errors = append(result.Errors, donationResult.Error)
-			s.logger.Error("failed to process donation",
-				"donation_id", donation.ID,
-				"error", donationResult.Error)
-			continue
-		}
-
-		if donationResult.ConstituentCreated {
-			result.ConstituentsCreated++
-		} else {
-			result.ConstituentsExisting++
-		}
-		if donationResult.GiftCreated {
-			result.GiftsCreated++
-		}
-		if donationResult.GiftUpdated {
-			result.GiftsUpdated++
-		}
-		if donationResult.GiftSkippedExisting {
-			result.GiftsSkippedExisting++
-		}
-
-		s.logger.Info("processed donation",
-			"donation_id", donation.ID,
-			"gift_id", donationResult.GiftID,
-			"created", donationResult.GiftCreated,
-			"updated", donationResult.GiftUpdated,
-			"skipped_existing", donationResult.GiftSkippedExisting)
+	if len(donations) == 0 {
+		s.logger.Info("no donations to process")
+		return result, nil
 	}
 
-	// Skip updating state in dry-run mode.
+	// Apply max donations limit.
+	if s.maxDonationsPerRun > 0 && len(donations) > s.maxDonationsPerRun {
+		s.logger.Info("limiting donations to max per run",
+			"total", len(donations),
+			"limit", s.maxDonationsPerRun)
+		donations = donations[:s.maxDonationsPerRun]
+	}
+
+	// Extract IDs for pending list.
+	pendingIDs := make([]string, len(donations))
+	for i, d := range donations {
+		pendingIDs[i] = d.ID
+	}
+
+	// Store pending list before processing (skip in dry-run).
+	if !s.dryRun {
+		if err := s.stateStore.SetPendingDonationIDs(ctx, pendingIDs); err != nil {
+			return nil, fmt.Errorf("storing pending donation IDs: %w", err)
+		}
+	}
+
+	// Process each donation.
+	for _, donation := range donations {
+		s.processAndRecord(ctx, result, donation)
+
+		// Remove from pending after processing (success or failure).
+		if !s.dryRun {
+			if err := s.stateStore.RemovePendingDonationID(ctx, donation.ID); err != nil {
+				s.logger.Error("failed to remove from pending", "donation_id", donation.ID, "error", err)
+			}
+		}
+	}
+
+	// All done - update sync time.
 	if !s.dryRun {
 		if err := s.stateStore.SetLastSyncTime(ctx, time.Now()); err != nil {
 			return result, fmt.Errorf("updating last sync time: %w", err)
 		}
 	}
 
+	s.logSyncComplete(result)
+	return result, nil
+}
+
+// runResume resumes processing from a previous interrupted run.
+func (s *Service) runResume(ctx context.Context, result *Result, pendingIDs []string) (*Result, error) {
+	s.logger.Info("resuming interrupted sync",
+		"pending_count", len(pendingIDs),
+		"dry_run", s.dryRun)
+
+	for _, donationID := range pendingIDs {
+		// Fetch fresh donation data by ID.
+		donation, err := s.fundraiseup.Donation(ctx, donationID)
+		if err != nil {
+			s.logger.Error("failed to fetch donation for resume",
+				"donation_id", donationID,
+				"error", err)
+			result.Errors = append(result.Errors, fmt.Errorf("fetching donation %s: %w", donationID, err))
+
+			// Remove from pending to avoid infinite retry loop.
+			if !s.dryRun {
+				if rmErr := s.stateStore.RemovePendingDonationID(ctx, donationID); rmErr != nil {
+					s.logger.Error("failed to remove from pending", "donation_id", donationID, "error", rmErr)
+				}
+			}
+			continue
+		}
+
+		s.processAndRecord(ctx, result, *donation)
+
+		// Remove from pending after processing.
+		if !s.dryRun {
+			if err := s.stateStore.RemovePendingDonationID(ctx, donationID); err != nil {
+				s.logger.Error("failed to remove from pending", "donation_id", donationID, "error", err)
+			}
+		}
+	}
+
+	// All pending processed - update sync time.
+	if !s.dryRun {
+		if err := s.stateStore.SetLastSyncTime(ctx, time.Now()); err != nil {
+			return result, fmt.Errorf("updating last sync time: %w", err)
+		}
+	}
+
+	s.logSyncComplete(result)
+	return result, nil
+}
+
+// processAndRecord processes a single donation and records the result.
+func (s *Service) processAndRecord(ctx context.Context, result *Result, donation fundraiseup.Donation) {
+	donationResult := s.processDonation(ctx, donation)
+	result.DonationsProcessed++
+
+	if donationResult.Error != nil {
+		result.Errors = append(result.Errors, donationResult.Error)
+		s.logger.Error("failed to process donation",
+			"donation_id", donation.ID,
+			"error", donationResult.Error)
+		return
+	}
+
+	if donationResult.ConstituentCreated {
+		result.ConstituentsCreated++
+	} else {
+		result.ConstituentsExisting++
+	}
+	if donationResult.GiftCreated {
+		result.GiftsCreated++
+	}
+	if donationResult.GiftUpdated {
+		result.GiftsUpdated++
+	}
+	if donationResult.GiftSkippedExisting {
+		result.GiftsSkippedExisting++
+	}
+
+	s.logger.Info("processed donation",
+		"donation_id", donation.ID,
+		"gift_id", donationResult.GiftID,
+		"created", donationResult.GiftCreated,
+		"updated", donationResult.GiftUpdated,
+		"skipped_existing", donationResult.GiftSkippedExisting)
+}
+
+// logSyncComplete logs the final sync summary.
+func (s *Service) logSyncComplete(result *Result) {
 	s.logger.Info("sync completed",
 		"donations_processed", result.DonationsProcessed,
 		"gifts_created", result.GiftsCreated,
@@ -187,8 +317,6 @@ func (s *Service) Run(ctx context.Context) (*Result, error) {
 		"constituents_created", result.ConstituentsCreated,
 		"errors", len(result.Errors),
 		"dry_run", s.dryRun)
-
-	return result, nil
 }
 
 // findExistingGift searches Blackbaud for a gift that was already created for this donation.
@@ -314,10 +442,7 @@ func (s *Service) getRecurringContext(
 		return recurringContext{}, nil
 	}
 
-	seqNum := donation.InstallmentNumber()
-	if seqNum < 1 {
-		seqNum = 1
-	}
+	seqNum := max(donation.InstallmentNumber(), 1)
 
 	isFirst := seqNum == 1
 

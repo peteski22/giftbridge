@@ -94,3 +94,40 @@ func TestNoopStateStoreMultipleCalls(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, since, result)
 }
+
+func TestNoopStateStorePendingMethods(t *testing.T) {
+	t.Parallel()
+
+	t.Run("PendingDonationIDs always returns nil", func(t *testing.T) {
+		t.Parallel()
+
+		store := NewNoopStateStore(time.Now())
+
+		ids, err := store.PendingDonationIDs(context.Background())
+		require.NoError(t, err)
+		require.Nil(t, ids)
+	})
+
+	t.Run("SetPendingDonationIDs does nothing", func(t *testing.T) {
+		t.Parallel()
+
+		store := NewNoopStateStore(time.Now())
+
+		err := store.SetPendingDonationIDs(context.Background(), []string{"DABCDEFG", "DHIJKLMN"})
+		require.NoError(t, err)
+
+		// Value should still be nil.
+		ids, err := store.PendingDonationIDs(context.Background())
+		require.NoError(t, err)
+		require.Nil(t, ids)
+	})
+
+	t.Run("RemovePendingDonationID does nothing", func(t *testing.T) {
+		t.Parallel()
+
+		store := NewNoopStateStore(time.Now())
+
+		err := store.RemovePendingDonationID(context.Background(), "DABCDEFG")
+		require.NoError(t, err)
+	})
+}

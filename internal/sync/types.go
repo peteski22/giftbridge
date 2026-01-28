@@ -64,4 +64,14 @@ type StateStore interface {
 
 	// SetLastSyncTime updates the last sync timestamp.
 	SetLastSyncTime(ctx context.Context, t time.Time) error
+
+	// PendingDonationIDs returns the list of donation IDs still to be processed.
+	// Returns empty slice if no pending work exists.
+	PendingDonationIDs(ctx context.Context) ([]string, error)
+
+	// SetPendingDonationIDs stores the list of donation IDs to be processed.
+	SetPendingDonationIDs(ctx context.Context, ids []string) error
+
+	// RemovePendingDonationID removes a single ID from the pending list after processing.
+	RemovePendingDonationID(ctx context.Context, id string) error
 }

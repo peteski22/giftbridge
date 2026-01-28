@@ -25,3 +25,18 @@ func (s *NoopStateStore) LastSyncTime(_ context.Context) (time.Time, error) {
 func (s *NoopStateStore) SetLastSyncTime(_ context.Context, _ time.Time) error {
 	return nil
 }
+
+// PendingDonationIDs always returns empty slice.
+func (s *NoopStateStore) PendingDonationIDs(_ context.Context) ([]string, error) {
+	return nil, nil
+}
+
+// SetPendingDonationIDs does nothing.
+func (s *NoopStateStore) SetPendingDonationIDs(_ context.Context, _ []string) error {
+	return nil
+}
+
+// RemovePendingDonationID does nothing.
+func (s *NoopStateStore) RemovePendingDonationID(_ context.Context, _ string) error {
+	return nil
+}

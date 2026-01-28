@@ -5,7 +5,7 @@ Description: >
 
 Globals:
   Function:
-    Timeout: 300
+    Timeout: 900  # 15 minutes - increased for large batch processing.
     MemorySize: 128
 
 Parameters:
@@ -85,6 +85,17 @@ Resources:
       Tags:
         Application: giftbridge
 
+  # SSM Parameter for storing pending donation IDs (timeout resilience).
+  PendingDonationsParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub /${AWS::StackName}/pending-donations
+      Type: String
+      Value: ""
+      Description: Comma-separated list of donation IDs pending processing (for resume after timeout).
+      Tags:
+        Application: giftbridge
+
   # Lambda function for sync.
   SyncFunction:
     Type: AWS::Serverless::Function
@@ -119,11 +130,15 @@ Resources:
       Policies:
         - SSMParameterReadPolicy:
             ParameterName: !Sub ${AWS::StackName}/last-sync-time
+        - SSMParameterReadPolicy:
+            ParameterName: !Sub ${AWS::StackName}/pending-donations
         - Statement:
             - Effect: Allow
               Action:
                 - ssm:PutParameter
-              Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/last-sync-time
+              Resource:
+                - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/last-sync-time
+                - !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${AWS::StackName}/pending-donations
         - Statement:
             - Effect: Allow
               Action:
