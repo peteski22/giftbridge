@@ -173,8 +173,15 @@ func NewStateStore(client SSMAPI, lastSyncParameterName string, opts ...StateSto
 
 	// Default pending parameter name if not set.
 	if store.pendingParameterName == "" {
+		const suffix = "last-sync-time"
+		if !strings.HasSuffix(lastSyncParameterName, suffix) {
+			return nil, fmt.Errorf(
+				"lastSyncParameterName must end with %q for default pending parameter derivation, or use WithPendingParameter option",
+				suffix,
+			)
+		}
 		// Derive from the sync time parameter by replacing the suffix.
-		store.pendingParameterName = lastSyncParameterName[:len(lastSyncParameterName)-len("last-sync-time")] + "pending-donations"
+		store.pendingParameterName = strings.TrimSuffix(lastSyncParameterName, suffix) + "pending-donations"
 	}
 
 	return store, nil

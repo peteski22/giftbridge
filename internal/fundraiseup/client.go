@@ -25,7 +25,11 @@ type Client struct {
 
 // Donation fetches a single donation by ID.
 func (c *Client) Donation(ctx context.Context, id string) (*Donation, error) {
-	reqURL := fmt.Sprintf("%s/donations/%s", c.baseURL, id)
+	if id == "" {
+		return nil, errors.New("donation id is required")
+	}
+
+	reqURL := fmt.Sprintf("%s/donations/%s", c.baseURL, url.PathEscape(id))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
@@ -78,7 +82,11 @@ func (c *Client) Donations(ctx context.Context, since time.Time) ([]Donation, er
 
 // Supporter fetches a supporter by ID.
 func (c *Client) Supporter(ctx context.Context, supporterID string) (*Supporter, error) {
-	reqURL := fmt.Sprintf("%s/supporters/%s", c.baseURL, supporterID)
+	if supporterID == "" {
+		return nil, errors.New("supporter id is required")
+	}
+
+	reqURL := fmt.Sprintf("%s/supporters/%s", c.baseURL, url.PathEscape(supporterID))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
 	if err != nil {
