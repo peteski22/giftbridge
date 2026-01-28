@@ -204,6 +204,8 @@ GiftBridge is designed to be extremely cost-effective for small charities.
 | SSM Parameter Store | 1 parameter | $0.00 (free) |
 | **Total** | | **~$0.10/month** |
 
+*Costs may vary by AWS region. Free tier eligibility applies to new accounts for 12 months.*
+
 No database required — Raiser's Edge NXT is used as the source of truth for donation tracking.
 
 ## Documentation
