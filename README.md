@@ -6,7 +6,7 @@ A free, open-source tool that automatically syncs donations from [FundraiseUp](h
 
 Many charities use **FundraiseUp** for online donations (modern, donor-friendly donation forms) alongside **Raiser's Edge NXT** (Blackbaud's donor management and CRM system).
 
-FundraiseUp offered a free built-in integration that automatically pushed donations into Raiser's Edge NXT. However, [this integration was discontinued on January 30, 2026](https://community.blackbaud.com/discussion/84271/fundraiseup-integration-gone-1-30-2026) due to changes on Blackbaud's side.
+FundraiseUp offered a free built-in integration that automatically pushed donations into Raiser's Edge NXT. However, [this integration is being discontinued on January 30, 2026](https://community.blackbaud.com/discussion/84271/fundraiseup-integration-gone-1-30-2026) due to changes on Blackbaud's side.
 
 **Without an integration, your options are:**
 
